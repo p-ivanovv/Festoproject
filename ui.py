@@ -1,14 +1,17 @@
+import os
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QComboBox,
     QSlider, QTextEdit, QGroupBox, QScrollArea,
     QFrame, QSizePolicy, QSpacerItem
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QByteArray, QBuffer, QIODevice, QSize
 from datetime import datetime
 from motor_controller import MotorController
+from src import controls
+from src.vector_graphics import VectorGraphics, VectorStatusDot, VectorDirectionBadge
 
-# Epic Games цветова палитра
+# Epic Games color palette
 EPIC_BLUE    = "#0078F2"
 EPIC_DARK_BG = "#0E0E11"
 EPIC_CARD_BG = "#17181C"
@@ -18,6 +21,10 @@ EPIC_DIM     = "#A0A0A8"
 EPIC_SUCCESS = "#4FBF67"
 EPIC_WARNING = "#F8B133"
 EPIC_ERROR   = "#E63946"
+
+# Absolute paths for dropdown SVG icons
+CHEV_LIGHT = os.path.abspath(os.path.join(os.path.dirname(__file__), "src/assets/chevron_down_light.svg")).replace("\\", "/")
+CHEV_HOVER = os.path.abspath(os.path.join(os.path.dirname(__file__), "src/assets/chevron_down_hover.svg")).replace("\\", "/")
 
 STYLE = f"""
 QMainWindow, QWidget {{
@@ -105,17 +112,17 @@ QComboBox:hover {{
 }}
 QComboBox::drop-down {{
     border: none;
-    width: 30px;
+    width: 28px;
     subcontrol-origin: padding;
     subcontrol-position: center right;
 }}
 QComboBox::down-arrow {{
-    image: none;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 5px solid {EPIC_DIM};
-    width: 0px;
-    height: 0px;
+    image: url("{CHEV_LIGHT}");
+    width: 12px;
+    height: 12px;
+}}
+QComboBox::down-arrow:hover {{
+    image: url("{CHEV_HOVER}");
 }}
 QComboBox QAbstractItemView {{
     background-color: {EPIC_CARD_BG};
@@ -161,7 +168,7 @@ QTextEdit {{
 
 QPushButton {{
     border-radius: 0px;
-    padding: 12px 24px;
+    padding: 10px 18px;
     font-size: 13px;
     font-family: 'Segoe UI', sans-serif;
     font-weight: 600;
@@ -176,17 +183,22 @@ QPushButton:disabled {{
 """
 
 
-def epic_btn(text, color=EPIC_BLUE, hover_color=None):
+def epic_btn(text, color=EPIC_BLUE, hover_color=None, icon_type=None):
     if hover_color is None:
         hover_color = lighten_color(color, 20)
     
     btn = QPushButton(text)
+    if icon_type:
+        icon = VectorGraphics.create_icon(icon_type, "#FFFFFF", EPIC_DIM, 16)
+        btn.setIcon(icon)
+        btn.setIconSize(QSize(16, 16))
+
     btn.setStyleSheet(f"""
         QPushButton {{
             background-color: {color};
             color: #FFFFFF;
             border-radius: 0px;
-            padding: 12px 24px;
+            padding: 10px 18px;
             font-size: 13px;
             font-family: 'Segoe UI', sans-serif;
             font-weight: 600;
@@ -233,18 +245,35 @@ def h_sep():
     return line
 
 
+def pixmap_to_base64_src(pixmap):
+    """Encodes a QPixmap into an HTML base64 image src for rich text logs."""
+    byte_array = QByteArray()
+    buffer = QBuffer(byte_array)
+    buffer.open(QIODevice.WriteOnly)
+    pixmap.save(buffer, "PNG")
+    b64_str = byte_array.toBase64().data().decode("utf-8")
+    return f"data:image/png;base64,{b64_str}"
+
+
 class RotateWorker(QThread):
     finished = pyqtSignal(bool, str)
+    progress = pyqtSignal(float, float, float, float)  # (current_deg, target_deg, elapsed_sec, total_sec)
 
-    def __init__(self, controller, degrees, direction, speed):
+    def __init__(self, controller, degrees, direction, speed_rpm):
         super().__init__()
         self.controller = controller
         self.degrees    = degrees
         self.direction  = direction
-        self.speed      = speed
+        self.speed_rpm  = speed_rpm
+
+    def _progress_cb(self, cur_deg, target_deg, elapsed, total):
+        self.progress.emit(cur_deg, target_deg, elapsed, total)
 
     def run(self):
-        ok, msg = self.controller.rotate(self.degrees, self.direction, self.speed)
+        ok, msg = self.controller.rotate(
+            self.degrees, self.direction, self.speed_rpm,
+            progress_callback=self._progress_cb
+        )
         self.finished.emit(ok, msg)
 
 
@@ -252,15 +281,25 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("FESTO MOTOR CONTROL")
-        self.setMinimumSize(800, 650)
+        self.setMinimumSize(850, 700)
         self.showMaximized()
         self.controller    = MotorController()
         self.worker        = None
-        self.total_degrees = 0
-        self.last_logged_speed = 50
+        self.last_logged_speed = 30
         self.setStyleSheet(STYLE)
+        
+        # Pre-render downloaded Microsoft Fluent SVG icon pixmaps
+        self.icon_check_b64 = pixmap_to_base64_src(VectorGraphics.create_pixmap("checkmark", EPIC_SUCCESS, 14))
+        self.icon_cross_b64 = pixmap_to_base64_src(VectorGraphics.create_pixmap("cross", EPIC_ERROR, 14))
+
         self._build_ui()
-        self._log("System initialized successfully", EPIC_SUCCESS)
+        self._log("System initialized successfully.", EPIC_SUCCESS, icon_b64=self.icon_check_b64)
+
+    def closeEvent(self, event):
+        """Safely call controls.cleanup() when application closes."""
+        self._log("Closing application: Executing safe hardware cleanup...", EPIC_WARNING)
+        controls.cleanup()
+        event.accept()
 
     def _build_ui(self):
         scroll = QScrollArea()
@@ -295,7 +334,7 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(0, 0, 0, 0)
 
         left = QVBoxLayout()
-        title = QLabel("MOTOR CONTROL")
+        title = QLabel("MOTOR CONTROL SYSTEM")
         title.setStyleSheet(f"""
             font-size: 28px;
             font-weight: 700;
@@ -303,7 +342,7 @@ class MainWindow(QMainWindow):
             letter-spacing: 0px;
             background: transparent;
         """)
-        sub = QLabel("Mazno Demo")
+        sub = QLabel("Festo Controller Interface")
         sub.setStyleSheet(f"""
             color: {EPIC_DIM};
             font-size: 13px;
@@ -313,16 +352,8 @@ class MainWindow(QMainWindow):
         left.addWidget(title)
         left.addWidget(sub)
 
-        self.status_dot = QLabel("● OFFLINE")
-        self.status_dot.setStyleSheet(f"""
-            color: {EPIC_ERROR};
-            font-size: 14px;
-            font-weight: 600;
-            letter-spacing: 1px;
-            background: transparent;
-            text-transform: uppercase;
-        """)
-        self.status_dot.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        # Vector Status Dot Widget
+        self.status_dot = VectorStatusDot(EPIC_ERROR, "OFFLINE")
 
         row.addLayout(left)
         row.addStretch()
@@ -330,7 +361,7 @@ class MainWindow(QMainWindow):
         return w
 
     def _make_connection_box(self):
-        gb  = QGroupBox("Connection Settings")
+        gb  = QGroupBox("Connection & Hardware Controls")
         row = QHBoxLayout(gb)
         row.setSpacing(12)
 
@@ -348,15 +379,24 @@ class MainWindow(QMainWindow):
         self.baud_combo.currentTextChanged.connect(self._on_baud_change)
         row.addWidget(self.baud_combo)
 
-        self.connect_btn    = epic_btn("Connect",    EPIC_BLUE)
-        self.disconnect_btn = epic_btn("Disconnect", EPIC_ERROR)
+        self.connect_btn    = epic_btn("Connect & Reset", EPIC_BLUE,    icon_type="connect")
+        self.reset_btn      = epic_btn("Reset",           EPIC_WARNING, icon_type="reset")
+        self.home_btn       = epic_btn("Home",            EPIC_BLUE,    icon_type="home")
+        self.disconnect_btn = epic_btn("Disconnect",      EPIC_ERROR,   icon_type="disconnect")
+
+        self.reset_btn.setEnabled(False)
+        self.home_btn.setEnabled(False)
         self.disconnect_btn.setEnabled(False)
 
         self.connect_btn.clicked.connect(self._on_connect)
+        self.reset_btn.clicked.connect(self._on_reset_controller)
+        self.home_btn.clicked.connect(self._on_home)
         self.disconnect_btn.clicked.connect(self._on_disconnect)
 
         row.addStretch()
         row.addWidget(self.connect_btn)
+        row.addWidget(self.reset_btn)
+        row.addWidget(self.home_btn)
         row.addWidget(self.disconnect_btn)
         return gb
 
@@ -369,7 +409,7 @@ class MainWindow(QMainWindow):
         deg_lbl = QLabel("Degrees:")
         deg_lbl.setFixedWidth(80)
         self.degrees_input = QLineEdit()
-        self.degrees_input.setPlaceholderText("Enter degrees (0-36000)")
+        self.degrees_input.setPlaceholderText("Enter degrees (e.g. 360)")
         self.degrees_input.setText("360")
         self.degrees_input.textChanged.connect(self._on_degrees_change)
         deg_row.addWidget(deg_lbl)
@@ -389,9 +429,9 @@ class MainWindow(QMainWindow):
         col.addWidget(h_sep())
 
         spd_row = QHBoxLayout()
-        spd_lbl = QLabel("Speed:")
-        spd_lbl.setFixedWidth(80)
-        self.speed_value_lbl = QLabel("50%")
+        spd_lbl = QLabel("Speed (RPM):")
+        spd_lbl.setFixedWidth(100)
+        self.speed_value_lbl = QLabel("30 RPM")
         self.speed_value_lbl.setStyleSheet(f"color:{EPIC_BLUE}; font-size:14px; font-weight:700;")
         self.speed_value_lbl.setAlignment(Qt.AlignRight)
         spd_row.addWidget(spd_lbl)
@@ -400,8 +440,8 @@ class MainWindow(QMainWindow):
         col.addLayout(spd_row)
         
         self.speed_slider = QSlider(Qt.Horizontal)
-        self.speed_slider.setRange(1, 100)
-        self.speed_slider.setValue(50)
+        self.speed_slider.setRange(1, 200)
+        self.speed_slider.setValue(30)
         self.speed_slider.valueChanged.connect(self._on_speed_visual_change)
         self.speed_slider.sliderReleased.connect(self._on_speed_released)
         col.addWidget(self.speed_slider)
@@ -410,8 +450,8 @@ class MainWindow(QMainWindow):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
-        self.rotate_btn = epic_btn("Start Rotation", EPIC_BLUE)
-        self.stop_btn   = epic_btn("Emergency Stop", EPIC_ERROR)
+        self.rotate_btn = epic_btn("Start Rotation", EPIC_BLUE,  icon_type="rotate")
+        self.stop_btn   = epic_btn("Emergency Stop", EPIC_ERROR, icon_type="stop")
         self.stop_btn.setEnabled(False)
         self.rotate_btn.clicked.connect(self._on_rotate)
         self.stop_btn.clicked.connect(self._on_stop)
@@ -422,27 +462,38 @@ class MainWindow(QMainWindow):
         return gb
 
     def _make_status_box(self):
-        gb  = QGroupBox("Motor Status")
+        gb  = QGroupBox("Motor Hardware Status")
         col = QVBoxLayout(gb)
         col.setSpacing(16)
 
-        def info_row(label, default, color=EPIC_TEXT):
+        def info_row(label, default_val):
             row = QHBoxLayout()
             l = QLabel(label)
             l.setStyleSheet(f"color:{EPIC_DIM}; font-size:12px;")
-            v = QLabel(default)
-            v.setStyleSheet(f"color:{color}; font-size:14px; font-weight:600;")
-            v.setAlignment(Qt.AlignRight)
+            
+            if isinstance(default_val, QWidget):
+                v = default_val
+            else:
+                v = QLabel(str(default_val))
+                v.setStyleSheet(f"color:{EPIC_TEXT}; font-size:14px; font-weight:600;")
+                v.setAlignment(Qt.AlignRight)
+
             row.addWidget(l)
             row.addStretch()
             row.addWidget(v)
             col.addLayout(row)
             return v
 
-        self.lbl_state    = info_row("State:",    "IDLE",  EPIC_DIM)
-        self.lbl_position = info_row("Position:", "0°",    EPIC_BLUE)
-        self.lbl_speed    = info_row("Speed:",    "0%",    EPIC_BLUE)
-        self.lbl_dir      = info_row("Direction:","—",     EPIC_TEXT)
+        self.lbl_state      = info_row("State:",     "IDLE")
+        self.lbl_power      = info_row("Power:",     "OFF")
+        self.lbl_position   = info_row("Position:",  "0.00°")
+        self.lbl_speed      = info_row("Speed:",     "0 RPM")
+        
+        # Vector Direction Badge
+        self.vector_dir_badge = VectorDirectionBadge("NONE", EPIC_DIM)
+        info_row("Direction:", self.vector_dir_badge)
+        
+        self.lbl_revolutions= info_row("Target Rev:", "0.00")
 
         return gb
 
@@ -452,12 +503,11 @@ class MainWindow(QMainWindow):
         row.setSpacing(8)
 
         presets = [
-            ("90°",      90),
-            ("180°",     180),
-            ("360°",     360),
-            ("720°",     720),
-            ("1 Rev",    360),
-            ("5 Rev",    1800),
+            ("90° (0.25 rev)",   90),
+            ("180° (0.5 rev)",   180),
+            ("360° (1 rev)",     360),
+            ("720° (2 rev)",     720),
+            ("1800° (5 rev)",    1800),
         ]
 
         for label, deg in presets:
@@ -487,7 +537,7 @@ class MainWindow(QMainWindow):
         return gb
 
     def _make_log_box(self):
-        gb  = QGroupBox("System Log")
+        gb  = QGroupBox("System & Hardware Log")
         col = QVBoxLayout(gb)
 
         self.log_text = QTextEdit()
@@ -497,11 +547,21 @@ class MainWindow(QMainWindow):
 
         return gb
 
-    def _log(self, message, color=EPIC_SUCCESS):
+    def _log(self, message, color=EPIC_SUCCESS, icon_b64=None):
         timestamp = datetime.now().strftime("%H:%M:%S")
+        
+        icon_html = ""
+        if icon_b64:
+            icon_html = f'<img src="{icon_b64}" width="14" height="14" style="vertical-align:middle; margin-right:4px;"/> '
+        elif color == EPIC_SUCCESS:
+            icon_html = f'<img src="{self.icon_check_b64}" width="14" height="14" style="vertical-align:middle; margin-right:4px;"/> '
+        elif color == EPIC_ERROR:
+            icon_html = f'<img src="{self.icon_cross_b64}" width="14" height="14" style="vertical-align:middle; margin-right:4px;"/> '
+
         self.log_text.append(
             f'<div style="margin:2px 0;">'
             f'<span style="color:{EPIC_DIM}; font-weight:600;">[{timestamp}]</span> '
+            f'{icon_html}'
             f'<span style="color:{color}; font-weight:500;">{message}</span>'
             f'</div>'
         )
@@ -518,37 +578,42 @@ class MainWindow(QMainWindow):
 
     def _on_degrees_change(self, text):
         if text and text.isdigit():
-            self._log(f"Target degrees set to {text}°", EPIC_WARNING)
+            deg = float(text)
+            rev = deg / 360.0
+            self.lbl_revolutions.setText(f"{rev:.4f}")
+            self._log(f"Target set: {deg}° ({rev:.4f} rev)", EPIC_WARNING)
 
     def _on_direction_change(self, direction):
         dir_name = "CW" if direction == "Clockwise" else "CCW"
-        self._log(f"Direction changed to {dir_name}", EPIC_WARNING)
+        self.vector_dir_badge.set_direction(dir_name, EPIC_BLUE)
+        self._log(f"Direction set to {dir_name}", EPIC_WARNING)
 
     def _on_speed_visual_change(self, value):
-        """Визуално update + логване само ако е от клик, не от drag"""
-        self.speed_value_lbl.setText(f"{value}%")
+        color = EPIC_WARNING if value > 30 else EPIC_BLUE
+        self.speed_value_lbl.setText(f"{value} RPM")
+        self.speed_value_lbl.setStyleSheet(f"color:{color}; font-size:14px; font-weight:700;")
         
-        # Ако стойността е различна и не се влачи в момента, логвай
         if value != self.last_logged_speed and not self.speed_slider.isSliderDown():
-            self._log(f"Speed adjusted to {value}%", EPIC_WARNING)
+            self._log(f"Speed set to {value} RPM", EPIC_WARNING if value > 30 else EPIC_BLUE)
             self.last_logged_speed = value
 
     def _on_speed_released(self):
-        """Логване само когато се пусне след drag"""
         value = self.speed_slider.value()
         if value != self.last_logged_speed:
-            self._log(f"Speed adjusted to {value}%", EPIC_WARNING)
+            self._log(f"Speed configured: {value} RPM", EPIC_WARNING if value > 30 else EPIC_BLUE)
             self.last_logged_speed = value
 
     def _preset_click(self, degrees, label):
         self.degrees_input.setText(str(degrees))
-        self._log(f"Preset applied: {label} ({degrees}°)", EPIC_BLUE)
+        rev = degrees / 360.0
+        self.lbl_revolutions.setText(f"{rev:.4f}")
+        self._log(f"Preset applied: {label}", EPIC_BLUE)
 
     def _on_connect(self):
         port = self.port_combo.currentText()
         baud = int(self.baud_combo.currentText())
         
-        self._log(f"Connecting to {port} at {baud} baud...", EPIC_BLUE)
+        self._log(f"Connecting to {port} at {baud} baud and initializing controls...", EPIC_BLUE)
         
         try:
             ok, msg = self.controller.connect(port, baud)
@@ -556,55 +621,90 @@ class MainWindow(QMainWindow):
             ok, msg = False, str(e)
 
         if ok:
-            self._log(f"✓ {msg}", EPIC_SUCCESS)
-            self.status_dot.setText("● ONLINE")
-            self.status_dot.setStyleSheet(f"color:{EPIC_SUCCESS}; font-size:14px; font-weight:600; letter-spacing:1px; background:transparent; text-transform:uppercase;")
+            self._log(f"Connected: {msg}", EPIC_SUCCESS)
+            self.status_dot.set_status("ONLINE", EPIC_SUCCESS)
             self.connect_btn.setEnabled(False)
+            self.reset_btn.setEnabled(True)
+            self.home_btn.setEnabled(True)
             self.disconnect_btn.setEnabled(True)
             self.port_combo.setEnabled(False)
             self.baud_combo.setEnabled(False)
+            self.lbl_power.setText("ON")
+            self.lbl_power.setStyleSheet(f"color:{EPIC_SUCCESS}; font-size:14px; font-weight:600;")
+            self._update_position_label()
         else:
-            self._log(f"✗ Connection failed: {msg}", EPIC_ERROR)
+            self._log(f"Connection failed: {msg}", EPIC_ERROR)
+
+    def _on_reset_controller(self):
+        self._log("Triggering manual controller reset...", EPIC_WARNING)
+        ok, msg = self.controller.reset_controller()
+        if ok:
+            self._log(f"Reset complete: {msg}", EPIC_SUCCESS)
+        else:
+            self._log(f"Reset failed: {msg}", EPIC_ERROR)
+
+    def _on_home(self):
+        self._log("Starting homing sequence...", EPIC_BLUE)
+        ok, msg = self.controller.home(True)
+        if ok:
+            self._log(f"Homing complete: {msg}", EPIC_SUCCESS)
+            self._update_position_label()
+        else:
+            self._log(f"Homing failed: {msg}", EPIC_ERROR)
 
     def _on_disconnect(self):
-        self._log("Disconnecting from device...", EPIC_BLUE)
+        self._log("Disconnecting and executing hardware cleanup...", EPIC_BLUE)
         self.controller.disconnect()
-        self._log("✓ Disconnected successfully", EPIC_WARNING)
+        self._log("Disconnected successfully. Power OFF.", EPIC_WARNING)
         
-        self.status_dot.setText("● OFFLINE")
-        self.status_dot.setStyleSheet(f"color:{EPIC_ERROR}; font-size:14px; font-weight:600; letter-spacing:1px; background:transparent; text-transform:uppercase;")
+        self.status_dot.set_status("OFFLINE", EPIC_ERROR)
         self.connect_btn.setEnabled(True)
+        self.reset_btn.setEnabled(False)
+        self.home_btn.setEnabled(False)
         self.disconnect_btn.setEnabled(False)
         self.port_combo.setEnabled(True)
         self.baud_combo.setEnabled(True)
         self.lbl_state.setText("IDLE")
+        self.lbl_power.setText("OFF")
+        self.lbl_power.setStyleSheet(f"color:{EPIC_ERROR}; font-size:14px; font-weight:600;")
+        self.vector_dir_badge.set_direction("NONE", EPIC_DIM)
 
     def _on_rotate(self):
         try:
-            degrees = int(self.degrees_input.text())
+            degrees = float(self.degrees_input.text())
         except ValueError:
-            self._log("✗ Invalid degrees value entered", EPIC_ERROR)
+            self._log("Invalid degrees value entered", EPIC_ERROR)
             return
 
         if not self.controller.is_connected():
-            self._log("✗ Device not connected", EPIC_ERROR)
+            self._log("Device not connected", EPIC_ERROR)
             return
 
         direction = "CW" if self.dir_combo.currentText() == "Clockwise" else "CCW"
-        speed     = self.speed_slider.value()
+        speed_rpm = self.speed_slider.value()
 
-        self._log(f"Starting rotation: {degrees}° {direction} at {speed}%", EPIC_BLUE)
+        rev = degrees / 360.0
+        self._log(f"Starting rotation: {degrees}° ({rev:.4f} rev) {direction} at {speed_rpm} RPM", EPIC_BLUE)
 
         self.rotate_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
-        self.lbl_state.setText("ROTATING")
+        self.lbl_state.setText("ROTATING (0.0%)")
         self.lbl_state.setStyleSheet(f"color:{EPIC_SUCCESS}; font-size:14px; font-weight:600;")
-        self.lbl_dir.setText(direction)
-        self.lbl_speed.setText(f"{speed}%")
+        self.vector_dir_badge.set_direction(direction, EPIC_BLUE)
+        self.lbl_speed.setText(f"{speed_rpm} RPM")
 
-        self.worker = RotateWorker(self.controller, degrees, direction, speed)
+        self.worker = RotateWorker(self.controller, degrees, direction, speed_rpm)
+        self.worker.progress.connect(self._on_rotate_progress)
         self.worker.finished.connect(self._on_rotate_finished)
         self.worker.start()
+
+    def _on_rotate_progress(self, current_deg, target_deg, elapsed_sec, total_sec):
+        """Real-time 20Hz updates for live position, revolution, and progress indicators."""
+        self.lbl_position.setText(f"{current_deg:.2f}°")
+        
+        pct = min(100.0, (elapsed_sec / total_sec) * 100.0) if total_sec > 0 else 100.0
+        self.lbl_state.setText(f"ROTATING ({pct:.1f}%) [{elapsed_sec:.1f}s / {total_sec:.1f}s]")
+        self.lbl_state.setStyleSheet(f"color:{EPIC_SUCCESS}; font-size:14px; font-weight:600;")
 
     def _on_rotate_finished(self, success, message):
         self.rotate_btn.setEnabled(True)
@@ -613,32 +713,29 @@ class MainWindow(QMainWindow):
         self.lbl_state.setStyleSheet(f"color:{EPIC_DIM}; font-size:14px; font-weight:600;")
 
         if success:
-            self._log(f"✓ {message}", EPIC_SUCCESS)
-            try:
-                degrees = int(self.degrees_input.text())
-                direction = self.dir_combo.currentText()
-                if direction == "Counter-Clockwise":
-                    self.total_degrees -= degrees
-                else:
-                    self.total_degrees += degrees
-                
-                # Нормализирай в диапазон 0-360°
-                display_position = self.total_degrees % 360
-                self.lbl_position.setText(f"{display_position}°")
-            except:
-                pass
+            self._log(f"Rotation complete: {message}", EPIC_SUCCESS)
+            self._update_position_label()
         else:
-            self._log(f"✗ Rotation failed: {message}", EPIC_ERROR)
+            self._log(f"Rotation failed: {message}", EPIC_ERROR)
+            self._update_position_label()
 
     def _on_stop(self):
         self._log("Emergency stop activated!", EPIC_ERROR)
         ok, msg = self.controller.stop()
         if ok:
-            self._log(f"✓ {msg}", EPIC_WARNING)
+            self._log(f"Stop result: {msg}", EPIC_WARNING)
+            self.lbl_power.setText("OFF")
+            self.lbl_power.setStyleSheet(f"color:{EPIC_ERROR}; font-size:14px; font-weight:600;")
         else:
-            self._log(f"✗ Stop command failed: {msg}", EPIC_ERROR)
+            self._log(f"Stop command failed: {msg}", EPIC_ERROR)
 
         self.rotate_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.lbl_state.setText("STOPPED")
         self.lbl_state.setStyleSheet(f"color:{EPIC_ERROR}; font-size:14px; font-weight:600;")
+        self._update_position_label()
+
+    def _update_position_label(self):
+        pos_deg, _ = self.controller.get_position()
+        if pos_deg is not None:
+            self.lbl_position.setText(f"{pos_deg:.2f}°")
