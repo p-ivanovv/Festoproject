@@ -55,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -63,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 import kotlin.math.roundToInt
 
 private const val GIST_PREFERENCES = "gist_connection"
@@ -175,6 +177,7 @@ fun FestoLoadingScreen() {
 fun FestoRemoteScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
     val api = remember { GistApi.create() }
     val preferences = remember(context) {
         context.getSharedPreferences(GIST_PREFERENCES, 0)
@@ -194,25 +197,36 @@ fun FestoRemoteScreen() {
     var loadingStatus by remember { mutableStateOf(true) }
     var requestInProgress by remember { mutableStateOf(false) }
     var lastError by remember { mutableStateOf<String?>(null) }
-    var lastSentCommandId by remember { mutableStateOf<String?>(null) }
+    var hasLocalDegreesDraft by remember { mutableStateOf(false) }
+    var hasLocalSpeedDraft by remember { mutableStateOf(false) }
 
-    fun applyDesktopStatus(desktopStatus: MotorStatus) {
+    fun applyDesktopStatus(desktopStatus: MotorStatus, force: Boolean = false) {
         val desktopDegrees = desktopStatus.degrees
             ?.filter(Char::isDigit)
             ?.takeIf { it.isNotBlank() }
 
-        if (desktopDegrees != null) {
+        if (desktopDegrees != null && (force || !hasLocalDegreesDraft)) {
             degreesText = desktopDegrees
+            hasLocalDegreesDraft = false
         }
 
-        desktopStatus.speed?.let { desktopSpeed ->
+        desktopStatus.speed?.takeIf { force || !hasLocalSpeedDraft }?.let { desktopSpeed ->
             speed = desktopSpeed.coerceIn(1, 1100)
+            hasLocalSpeedDraft = false
         }
 
         desktopStatus.direction
             ?.uppercase()
             ?.takeIf { it == "CW" || it == "CCW" }
             ?.let { direction = it }
+    }
+
+    fun friendlyGistError(error: Exception, fallback: String): String {
+        if (error is HttpException && error.code() == 403) {
+            return "GitHub denied Gist access (403). Check that the token has Gists read/write permission."
+        }
+
+        return error.message ?: fallback
     }
 
     suspend fun refreshStatus(
@@ -241,15 +255,9 @@ fun FestoRemoteScreen() {
 
             status = desktopStatus
 
-            // Only sync control values from the desktop when the desktop has
-            // acknowledged our latest command (or we never sent one).  This
-            // prevents the mobile UI from reverting to stale desktop state
-            // while a command is still in-flight.
-            val acked = lastSentCommandId == null ||
-                desktopStatus?.ackCommandId == lastSentCommandId
-
-            if (acked && (syncControlValues || !requestInProgress) && desktopStatus != null) {
-                applyDesktopStatus(desktopStatus)
+            // Keep a local edit intact until the user sends it to the desktop app.
+            if ((syncControlValues || !requestInProgress) && desktopStatus != null) {
+                applyDesktopStatus(desktopStatus, force = syncControlValues)
             }
 
             loadingStatus = false
@@ -258,7 +266,7 @@ fun FestoRemoteScreen() {
             loadingStatus = false
 
             if (showError) {
-                lastError = error.message ?: "Unable to read PC status"
+                lastError = friendlyGistError(error, "Unable to read PC status")
             }
         }
     }
@@ -311,11 +319,8 @@ fun FestoRemoteScreen() {
             lastError = null
 
             try {
-                val commandId = System.currentTimeMillis().toString()
-                lastSentCommandId = commandId
-
                 val commandData = RemoteCommand(
-                    commandId = commandId,
+                    commandId = System.currentTimeMillis().toString(),
                     cmd = command,
                     value = value
                 )
@@ -342,7 +347,7 @@ fun FestoRemoteScreen() {
                     Toast.LENGTH_SHORT
                 ).show()
             } catch (error: Exception) {
-                lastError = error.message ?: "Command failed"
+                lastError = friendlyGistError(error, "Command failed")
 
                 Toast.makeText(
                     context,
@@ -517,6 +522,7 @@ fun FestoRemoteScreen() {
                     value = degreesText,
                     onValueChange = {
                         degreesText = it.filter(Char::isDigit)
+                        hasLocalDegreesDraft = true
                     },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
@@ -536,6 +542,7 @@ fun FestoRemoteScreen() {
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !requestInProgress && degreesText.isNotBlank()
                 ) {
+                    focusManager.clearFocus()
                     sendCommand("SET_DEGREES", degreesText)
                 }
 
@@ -559,6 +566,7 @@ fun FestoRemoteScreen() {
                         modifier = Modifier.weight(1f)
                     ) {
                         direction = "CW"
+                        focusManager.clearFocus()
                         sendCommand("SET_DIRECTION", "CW")
                     }
 
@@ -568,6 +576,7 @@ fun FestoRemoteScreen() {
                         modifier = Modifier.weight(1f)
                     ) {
                         direction = "CCW"
+                        focusManager.clearFocus()
                         sendCommand("SET_DIRECTION", "CCW")
                     }
                 }
@@ -585,6 +594,7 @@ fun FestoRemoteScreen() {
                     value = speed.toFloat(),
                     onValueChange = {
                         speed = it.roundToInt()
+                        hasLocalSpeedDraft = true
                     },
                     valueRange = 1f..1100f,
                     steps = 1098,
@@ -601,6 +611,7 @@ fun FestoRemoteScreen() {
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !requestInProgress
                 ) {
+                    focusManager.clearFocus()
                     sendCommand("SET_SPEED", speed)
                 }
 
@@ -637,16 +648,19 @@ fun FestoRemoteScreen() {
                 ) {
                     PresetButton("90Â°", Modifier.weight(1f)) {
                         degreesText = "90"
+                        hasLocalDegreesDraft = true
                         sendCommand("SET_DEGREES", "90")
                     }
 
                     PresetButton("180Â°", Modifier.weight(1f)) {
                         degreesText = "180"
+                        hasLocalDegreesDraft = true
                         sendCommand("SET_DEGREES", "180")
                     }
 
                     PresetButton("360Â°", Modifier.weight(1f)) {
                         degreesText = "360"
+                        hasLocalDegreesDraft = true
                         sendCommand("SET_DEGREES", "360")
                     }
                 }
@@ -659,11 +673,13 @@ fun FestoRemoteScreen() {
                 ) {
                     PresetButton("720Â°", Modifier.weight(1f)) {
                         degreesText = "720"
+                        hasLocalDegreesDraft = true
                         sendCommand("SET_DEGREES", "720")
                     }
 
                     PresetButton("1800Â°", Modifier.weight(1f)) {
                         degreesText = "1800"
+                        hasLocalDegreesDraft = true
                         sendCommand("SET_DEGREES", "1800")
                     }
                 }
