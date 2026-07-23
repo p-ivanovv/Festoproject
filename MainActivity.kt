@@ -194,6 +194,7 @@ fun FestoRemoteScreen() {
     var loadingStatus by remember { mutableStateOf(true) }
     var requestInProgress by remember { mutableStateOf(false) }
     var lastError by remember { mutableStateOf<String?>(null) }
+    var lastSentCommandId by remember { mutableStateOf<String?>(null) }
 
     fun applyDesktopStatus(desktopStatus: MotorStatus) {
         val desktopDegrees = desktopStatus.degrees
@@ -240,8 +241,14 @@ fun FestoRemoteScreen() {
 
             status = desktopStatus
 
-            // Desktop settings become the source of truth when no phone command is pending.
-            if ((syncControlValues || !requestInProgress) && desktopStatus != null) {
+            // Only sync control values from the desktop when the desktop has
+            // acknowledged our latest command (or we never sent one).  This
+            // prevents the mobile UI from reverting to stale desktop state
+            // while a command is still in-flight.
+            val acked = lastSentCommandId == null ||
+                desktopStatus?.ackCommandId == lastSentCommandId
+
+            if (acked && (syncControlValues || !requestInProgress) && desktopStatus != null) {
                 applyDesktopStatus(desktopStatus)
             }
 
@@ -304,8 +311,11 @@ fun FestoRemoteScreen() {
             lastError = null
 
             try {
+                val commandId = System.currentTimeMillis().toString()
+                lastSentCommandId = commandId
+
                 val commandData = RemoteCommand(
-                    commandId = System.currentTimeMillis().toString(),
+                    commandId = commandId,
                     cmd = command,
                     value = value
                 )

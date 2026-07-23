@@ -34,6 +34,7 @@ class GistRemoteListener(QObject):
         self._last_command_id = None
         self._running = False
         self._thread = None
+        self.last_processed_command_id = None
 
     def start(self):
         if self._running:
@@ -82,13 +83,15 @@ class GistRemoteListener(QObject):
             and command_id != self._last_command_id
         ):
             self._last_command_id = command_id
+            self.last_processed_command_id = command_id
             self.command_received.emit(
                 payload.get("cmd", ""),
                 payload.get("value"),
             )
 
 
-def push_status(status: dict, gist_id: str, github_token: str):
+def push_status(status: dict, gist_id: str, github_token: str,
+                last_command_id: str = None):
     """Writes the current desktop state into status.json asynchronously."""
 
     gist_id = gist_id.strip()
@@ -96,6 +99,9 @@ def push_status(status: dict, gist_id: str, github_token: str):
 
     if not gist_id or not github_token:
         return
+
+    if last_command_id is not None:
+        status["ack_command_id"] = last_command_id
 
     gist_url = _gist_url(gist_id)
     headers = _headers(github_token)

@@ -57,7 +57,10 @@ data class MotorStatus(
     val state: String?,
 
     @SerializedName("power")
-    val power: String?
+    val power: String?,
+
+    @SerializedName("ack_command_id")
+    val ackCommandId: String?
 )
 
 interface GistApi {

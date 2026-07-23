@@ -896,10 +896,17 @@ class MainWindow(QMainWindow):
             "power": self.lbl_power.text(),
         }
 
+        last_cmd_id = (
+            self.remote.last_processed_command_id
+            if self.remote is not None
+            else None
+        )
+
         push_status(
             status,
             self.gist_id_input.text(),
             self.gist_token_input.text(),
+            last_command_id=last_cmd_id,
         )
 
     def _on_port_change(self, port):
