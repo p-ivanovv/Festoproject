@@ -1,3 +1,6 @@
+Exit code: 0
+Wall time: 1.1 seconds
+Output:
 package com.example.festomotorremote
 
 import android.os.Bundle
@@ -5,6 +8,10 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -45,18 +52,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-private const val GIST_ID = "f7892579389e55fdedac6544fccf2751"
-private const val GITHUB_TOKEN = "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"
+private const val GIST_PREFERENCES = "gist_connection"
+private const val GIST_ID_KEY = "gist_id"
+private const val GITHUB_TOKEN_KEY = "github_token"
 
 private val EpicBlue = Color(0xFF0078F2)
 private val EpicDark = Color(0xFF0E0E11)
@@ -84,8 +95,77 @@ class MainActivity : ComponentActivity() {
                     onSurface = EpicText
                 )
             ) {
-                FestoRemoteScreen()
+                FestoRemoteApp()
             }
+        }
+    }
+}
+
+@Composable
+fun FestoRemoteApp() {
+    var showSplash by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        delay(950)
+        showSplash = false
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        FestoRemoteScreen()
+
+        AnimatedVisibility(
+            visible = showSplash,
+            enter = fadeIn(animationSpec = tween(durationMillis = 180)),
+            exit = fadeOut(animationSpec = tween(durationMillis = 480))
+        ) {
+            FestoLoadingScreen()
+        }
+    }
+}
+
+@Composable
+fun FestoLoadingScreen() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(Color(0xFF111827), EpicDark, Color(0xFF090A0D))
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "FESTO",
+                color = EpicText,
+                fontWeight = FontWeight.Black,
+                fontSize = 32.sp,
+                letterSpacing = 4.sp
+            )
+
+            Text(
+                text = "MOTOR CONTROL",
+                color = EpicBlue,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                letterSpacing = 2.sp
+            )
+
+            CircularProgressIndicator(
+                color = EpicBlue,
+                strokeWidth = 3.dp,
+                modifier = Modifier.width(30.dp)
+            )
+
+            Text(
+                text = "Preparing remote interface",
+                color = EpicDim,
+                fontSize = 13.sp
+            )
         }
     }
 }
@@ -96,25 +176,75 @@ fun FestoRemoteScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val api = remember { GistApi.create() }
+    val preferences = remember(context) {
+        context.getSharedPreferences(GIST_PREFERENCES, 0)
+    }
 
     var degreesText by remember { mutableStateOf("360") }
     var speed by remember { mutableIntStateOf(30) }
     var direction by remember { mutableStateOf("CW") }
+    var gistId by remember {
+        mutableStateOf(preferences.getString(GIST_ID_KEY, "").orEmpty())
+    }
+    var githubToken by remember {
+        mutableStateOf(preferences.getString(GITHUB_TOKEN_KEY, "").orEmpty())
+    }
 
     var status by remember { mutableStateOf<MotorStatus?>(null) }
     var loadingStatus by remember { mutableStateOf(true) }
     var requestInProgress by remember { mutableStateOf(false) }
     var lastError by remember { mutableStateOf<String?>(null) }
 
-    suspend fun refreshStatus(showError: Boolean = false) {
+    fun applyDesktopStatus(desktopStatus: MotorStatus) {
+        val desktopDegrees = desktopStatus.degrees
+            ?.filter(Char::isDigit)
+            ?.takeIf { it.isNotBlank() }
+
+        if (desktopDegrees != null) {
+            degreesText = desktopDegrees
+        }
+
+        desktopStatus.speed?.let { desktopSpeed ->
+            speed = desktopSpeed.coerceIn(1, 1100)
+        }
+
+        desktopStatus.direction
+            ?.uppercase()
+            ?.takeIf { it == "CW" || it == "CCW" }
+            ?.let { direction = it }
+    }
+
+    suspend fun refreshStatus(
+        showError: Boolean = false,
+        syncControlValues: Boolean = false
+    ) {
+        val configuredGistId = gistId.trim()
+        val configuredGithubToken = githubToken.trim()
+
+        if (configuredGistId.isBlank() || configuredGithubToken.isBlank()) {
+            status = null
+            loadingStatus = false
+            return
+        }
+
         try {
             val gist = api.getGist(
-                gistId = GIST_ID,
-                authorization = "Bearer $GITHUB_TOKEN"
+                gistId = configuredGistId,
+                authorization = "Bearer $configuredGithubToken"
             )
 
             val rawStatus = gist.files["status.json"]?.content
-            status = rawStatus?.let { GistApi.gson.fromJson(it, MotorStatus::class.java) }
+            val desktopStatus = rawStatus?.let {
+                GistApi.gson.fromJson(it, MotorStatus::class.java)
+            }
+
+            status = desktopStatus
+
+            // Desktop settings become the source of truth when no phone command is pending.
+            if ((syncControlValues || !requestInProgress) && desktopStatus != null) {
+                applyDesktopStatus(desktopStatus)
+            }
+
             loadingStatus = false
             lastError = null
         } catch (error: Exception) {
@@ -126,11 +256,44 @@ fun FestoRemoteScreen() {
         }
     }
 
-    fun sendCommand(command: String, value: Any? = null) {
-        if (GIST_ID.startsWith("PUT_") || GITHUB_TOKEN.startsWith("PUT_")) {
+    fun saveGistSettings() {
+        gistId = gistId.trim()
+        githubToken = githubToken.trim()
+
+        if (gistId.isBlank() || githubToken.isBlank()) {
             Toast.makeText(
                 context,
-                "First add your Gist ID and GitHub token in MainActivity.kt",
+                "Enter both Gist ID and GitHub token",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        preferences.edit()
+            .putString(GIST_ID_KEY, gistId)
+            .putString(GITHUB_TOKEN_KEY, githubToken)
+            .apply()
+
+        loadingStatus = true
+        scope.launch {
+            refreshStatus(showError = true)
+        }
+
+        Toast.makeText(
+            context,
+            "Gist settings saved",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    fun sendCommand(command: String, value: Any? = null) {
+        val configuredGistId = gistId.trim()
+        val configuredGithubToken = githubToken.trim()
+
+        if (configuredGistId.isBlank() || configuredGithubToken.isBlank()) {
+            Toast.makeText(
+                context,
+                "Enter and save your Gist ID and GitHub token first",
                 Toast.LENGTH_LONG
             ).show()
             return
@@ -150,8 +313,8 @@ fun FestoRemoteScreen() {
                 val commandJson = GistApi.gson.toJson(commandData)
 
                 api.updateGist(
-                    gistId = GIST_ID,
-                    authorization = "Bearer $GITHUB_TOKEN",
+                    gistId = configuredGistId,
+                    authorization = "Bearer $configuredGithubToken",
                     body = GistUpdateRequest(
                         files = mapOf(
                             "command.json" to GistFileUpdate(commandJson)
@@ -159,8 +322,9 @@ fun FestoRemoteScreen() {
                     )
                 )
 
-                delay(500)
-                refreshStatus()
+                // The desktop listener polls every two seconds; wait for its status update.
+                delay(2300)
+                refreshStatus(showError = true, syncControlValues = true)
 
                 Toast.makeText(
                     context,
@@ -183,8 +347,11 @@ fun FestoRemoteScreen() {
 
     LaunchedEffect(Unit) {
         while (true) {
-            if (!GIST_ID.startsWith("PUT_") && !GITHUB_TOKEN.startsWith("PUT_")) {
+            if (gistId.isNotBlank() && githubToken.isNotBlank()) {
                 refreshStatus()
+            } else {
+                status = null
+                loadingStatus = false
             }
 
             delay(2000)
@@ -225,6 +392,49 @@ fun FestoRemoteScreen() {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            SectionCard(title = "GitHub Gist") {
+                Text(
+                    text = "Enter the shared Gist credentials used by the desktop app.",
+                    color = EpicDim,
+                    fontSize = 13.sp
+                )
+
+                Spacer(Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = gistId,
+                    onValueChange = { gistId = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Gist ID") }
+                )
+
+                Spacer(Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = githubToken,
+                    onValueChange = { githubToken = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("GitHub token") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password
+                    )
+                )
+
+                Spacer(Modifier.height(10.dp))
+
+                ActionButton(
+                    text = "SAVE GIST SETTINGS",
+                    color = EpicBlue,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !requestInProgress
+                ) {
+                    saveGistSettings()
+                }
+            }
+
             StatusCard(
                 status = status,
                 isLoading = loadingStatus
@@ -415,17 +625,17 @@ fun FestoRemoteScreen() {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    PresetButton("90°", Modifier.weight(1f)) {
+                    PresetButton("90Â°", Modifier.weight(1f)) {
                         degreesText = "90"
                         sendCommand("SET_DEGREES", "90")
                     }
 
-                    PresetButton("180°", Modifier.weight(1f)) {
+                    PresetButton("180Â°", Modifier.weight(1f)) {
                         degreesText = "180"
                         sendCommand("SET_DEGREES", "180")
                     }
 
-                    PresetButton("360°", Modifier.weight(1f)) {
+                    PresetButton("360Â°", Modifier.weight(1f)) {
                         degreesText = "360"
                         sendCommand("SET_DEGREES", "360")
                     }
@@ -437,12 +647,12 @@ fun FestoRemoteScreen() {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    PresetButton("720°", Modifier.weight(1f)) {
+                    PresetButton("720Â°", Modifier.weight(1f)) {
                         degreesText = "720"
                         sendCommand("SET_DEGREES", "720")
                     }
 
-                    PresetButton("1800°", Modifier.weight(1f)) {
+                    PresetButton("1800Â°", Modifier.weight(1f)) {
                         degreesText = "1800"
                         sendCommand("SET_DEGREES", "1800")
                     }
@@ -462,7 +672,7 @@ fun FestoRemoteScreen() {
             }
 
             Text(
-                text = "Status refresh: every 2 seconds",
+                text = "Desktop changes synchronize automatically every 2 seconds",
                 color = EpicDim,
                 fontSize = 12.sp,
                 modifier = Modifier
@@ -554,7 +764,7 @@ fun SectionCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = EpicCard
+            containerColor = EpicCard.copy(alpha = 0.93f)
         ),
         shape = RoundedCornerShape(6.dp)
     ) {
@@ -588,7 +798,7 @@ fun ActionButton(
         enabled = enabled,
         shape = RoundedCornerShape(4.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = color,
+            containerColor = lerp(EpicCard, color, 0.42f),
             contentColor = Color.White,
             disabledContainerColor = EpicBorder,
             disabledContentColor = EpicDim
@@ -609,8 +819,8 @@ fun DirectionButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val background = if (selected) EpicBlue else EpicDark
-    val borderColor = if (selected) EpicBlue else EpicBorder
+    val background = if (selected) lerp(EpicDark, EpicBlue, 0.38f) else EpicDark
+    val borderColor = if (selected) lerp(EpicBorder, EpicBlue, 0.60f) else EpicBorder
 
     Box(
         modifier = modifier
@@ -665,7 +875,7 @@ fun ErrorCard(error: String) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF3A151A)
+            containerColor = Color(0xFF3A151A).copy(alpha = 0.94f)
         ),
         shape = RoundedCornerShape(6.dp)
     ) {
