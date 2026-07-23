@@ -69,9 +69,14 @@ class TestControlsPackage(unittest.TestCase):
         self.assertTrue(ok)
         self.assertTrue(mc.is_connected())
 
-        # After connect + implicit homing, position should be 0
+        # Connection prepares the controller but leaves motor power OFF.
         pos, _ = mc.get_position()
         self.assertAlmostEqual(pos, 0.0)
+        self.assertFalse(mc.is_powered())
+
+        ok, msg = mc.power_on()
+        self.assertTrue(ok)
+        self.assertTrue(mc.is_powered())
 
         # Rotate 180 degrees CW
         ok, msg = mc.rotate(180, "CW", 30)
@@ -80,6 +85,16 @@ class TestControlsPackage(unittest.TestCase):
         # Position tracked locally by MotorController
         pos, _ = mc.get_position()
         self.assertAlmostEqual(pos, 180.0)
+
+        # Homing returns the tracked position to the zero reference.
+        ok, msg = mc.home()
+        self.assertTrue(ok)
+        pos, _ = mc.get_position()
+        self.assertAlmostEqual(pos, 0.0)
+
+        ok, msg = mc.power_off()
+        self.assertTrue(ok)
+        self.assertFalse(mc.is_powered())
 
         ok, msg = mc.disconnect()
         self.assertTrue(ok)

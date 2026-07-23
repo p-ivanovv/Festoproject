@@ -18,38 +18,36 @@ class MotorController:
 
     def __init__(self):
         self._connected = False
-        self._port = None
-        self._baudrate = None
         self._current_position_deg = 0.0
         
     def is_connected(self) -> bool:
         return self._connected
     
-    def connect(self, port: str, baudrate: int = 9600, timeout: float = 1.0):
+    def connect(self, port: str = None, baudrate: int = 9600, timeout: float = 1.0):
         """
-        Connect to the motor controller and initialize safety controls:
+        Connect to the motor controller and initialize its safety controls:
         1. Perform single controller_reset to clear prior error states.
-        2. Enable motor power.
-        3. Enable motor position tracker.
+        2. Enable motor position tracker.
+        3. Keep motor power OFF until the operator explicitly enables it.
+
+        ``port`` and ``baudrate`` remain optional for backwards compatibility
+        with earlier integrations; the desktop interface no longer exposes
+        serial-port settings.
         """
         try:
-            self._port = port
-            self._baudrate = baudrate
-            
             # Step 1: Controller reset (Required ONCE before other steps)
             ok_reset, msg_reset = controls.controller_reset()
             if not ok_reset:
                 return False, f"Connection failed during reset: {msg_reset}"
 
-            # Step 2: Supply power to motor
-            controls.motor_power = True
-
-            # Step 3: Enable position tracking relative to 0
+            # Step 2: Enable position tracking relative to 0, but do not
+            # energize the motor until Power ON is selected in the UI.
+            controls.motor_power = False
             controls.motor_position_tracker = True
 
             self._connected = True
             self._current_position_deg = 0.0
-            return True, f"Connected to {port} at {baudrate} baud (Power ON, Reset OK, Tracking ON)"
+            return True, "Controller connected and initialized. Motor power is OFF."
         
         except Exception as exc:
             self._connected = False
@@ -58,6 +56,26 @@ class MotorController:
     def reset_controller(self):
         """Manually trigger controller reset to clear errors."""
         return controls.controller_reset()
+
+    def power_on(self):
+        """Supply power to a connected motor after controller initialization."""
+        if not self._connected:
+            return False, "Not connected. Please connect first."
+
+        controls.motor_power = True
+        return True, "Motor power enabled."
+
+    def power_off(self):
+        """Safely cut power to a connected motor."""
+        if not self._connected:
+            return False, "Not connected. Please connect first."
+
+        controls.motor_power = False
+        return True, "Motor power disabled."
+
+    def is_powered(self) -> bool:
+        """Return whether the connected motor is currently powered."""
+        return self._connected and controls.motor_power
 
     def home(self, enable: bool = True):
         """Execute motor homing sequence to align position to 0."""
@@ -73,8 +91,6 @@ class MotorController:
         if self._connected:
             controls.cleanup()
             self._connected = False
-            self._port = None
-            self._baudrate = None
             self._current_position_deg = 0.0
             return True, "Disconnected and hardware safely cleaned up"
         return True, "Already disconnected"
@@ -124,10 +140,9 @@ class MotorController:
     
     def stop(self):
         """Emergency stop: Cuts motor power immediately."""
-        if not self._connected:
-            return False, "Not connected"
-        
-        controls.motor_power = False
+        ok, message = self.power_off()
+        if not ok:
+            return False, message
         return True, "Emergency stop activated. Motor power cut OFF!"
     
     def get_position(self):

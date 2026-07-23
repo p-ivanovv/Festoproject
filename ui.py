@@ -606,39 +606,23 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout(group_box)
         row.setSpacing(12)
 
-        row.addWidget(QLabel("Port:"))
-
-        self.port_combo = QComboBox()
-        self.port_combo.addItems([
-            "COM1", "COM2", "COM3", "COM4",
-            "COM5", "COM6", "COM7", "COM8"
-        ])
-        self.port_combo.setCurrentText("COM3")
-        self.port_combo.currentTextChanged.connect(self._on_port_change)
-        row.addWidget(self.port_combo)
-
-        row.addWidget(QLabel("Baud Rate:"))
-
-        self.baud_combo = QComboBox()
-        self.baud_combo.addItems([
-            "9600", "19200", "38400", "57600", "115200"
-        ])
-        self.baud_combo.setCurrentText("9600")
-        self.baud_combo.currentTextChanged.connect(self._on_baud_change)
-        row.addWidget(self.baud_combo)
-
         self.connect_btn = epic_btn(
-            "Connect & Reset",
+            "Connect",
             EPIC_BLUE,
             icon_type="connect"
         )
-        self.reset_btn = epic_btn(
-            "Reset",
-            EPIC_WARNING,
-            icon_type="reset"
+        self.power_on_btn = epic_btn(
+            "Power ON",
+            EPIC_SUCCESS,
+            icon_type="connect"
         )
-        self.home_btn = epic_btn(
-            "Home",
+        self.power_off_btn = epic_btn(
+            "Power OFF",
+            EPIC_ERROR,
+            icon_type="stop"
+        )
+        self.homing_btn = epic_btn(
+            "Homing (0°)",
             EPIC_BLUE,
             icon_type="home"
         )
@@ -648,19 +632,22 @@ class MainWindow(QMainWindow):
             icon_type="disconnect"
         )
 
-        self.reset_btn.setEnabled(False)
-        self.home_btn.setEnabled(False)
+        self.power_on_btn.setEnabled(False)
+        self.power_off_btn.setEnabled(False)
+        self.homing_btn.setEnabled(False)
         self.disconnect_btn.setEnabled(False)
 
         self.connect_btn.clicked.connect(self._on_connect)
-        self.reset_btn.clicked.connect(self._on_reset_controller)
-        self.home_btn.clicked.connect(self._on_home)
+        self.power_on_btn.clicked.connect(self._on_power_on)
+        self.power_off_btn.clicked.connect(self._on_power_off)
+        self.homing_btn.clicked.connect(self._on_homing)
         self.disconnect_btn.clicked.connect(self._on_disconnect)
 
         row.addStretch()
         row.addWidget(self.connect_btn)
-        row.addWidget(self.reset_btn)
-        row.addWidget(self.home_btn)
+        row.addWidget(self.power_on_btn)
+        row.addWidget(self.power_off_btn)
+        row.addWidget(self.homing_btn)
         row.addWidget(self.disconnect_btn)
 
         return group_box
@@ -740,6 +727,7 @@ class MainWindow(QMainWindow):
             icon_type="stop"
         )
 
+        self.rotate_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
 
         self.rotate_btn.clicked.connect(self._on_rotate)
@@ -909,12 +897,6 @@ class MainWindow(QMainWindow):
             last_command_id=last_cmd_id,
         )
 
-    def _on_port_change(self, port):
-        self._log(f"COM port changed to {port}", EPIC_BLUE)
-
-    def _on_baud_change(self, baud):
-        self._log(f"Baud rate changed to {baud}", EPIC_BLUE)
-
     def _on_degrees_change(self, text):
         if text and text.isdigit():
             degrees = float(text)
@@ -971,16 +953,13 @@ class MainWindow(QMainWindow):
         self._push_status()
 
     def _on_connect(self):
-        port = self.port_combo.currentText()
-        baud = int(self.baud_combo.currentText())
-
         self._log(
-            f"Connecting to {port} at {baud} baud and initializing controls...",
+            "Connecting and initializing motor controls...",
             EPIC_BLUE
         )
 
         try:
-            ok, message = self.controller.connect(port, baud)
+            ok, message = self.controller.connect()
         except Exception as error:
             ok, message = False, str(error)
 
@@ -990,16 +969,15 @@ class MainWindow(QMainWindow):
             self.status_dot.set_status("ONLINE", EPIC_SUCCESS)
 
             self.connect_btn.setEnabled(False)
-            self.reset_btn.setEnabled(True)
-            self.home_btn.setEnabled(True)
+            self.power_on_btn.setEnabled(True)
+            self.power_off_btn.setEnabled(False)
+            self.homing_btn.setEnabled(False)
             self.disconnect_btn.setEnabled(True)
+            self.rotate_btn.setEnabled(False)
 
-            self.port_combo.setEnabled(False)
-            self.baud_combo.setEnabled(False)
-
-            self.lbl_power.setText("ON")
+            self.lbl_power.setText("OFF")
             self.lbl_power.setStyleSheet(
-                f"color:{EPIC_SUCCESS}; font-size:14px; font-weight:600;"
+                f"color:{EPIC_ERROR}; font-size:14px; font-weight:600;"
             )
 
             self._update_position_label()
@@ -1008,25 +986,53 @@ class MainWindow(QMainWindow):
             self._log(f"Connection failed: {message}", EPIC_ERROR)
             self._push_status()
 
-    def _on_reset_controller(self):
-        self._log("Triggering manual controller reset...", EPIC_WARNING)
+    def _on_power_on(self):
+        self._log("Enabling motor power...", EPIC_BLUE)
 
-        ok, message = self.controller.reset_controller()
+        ok, message = self.controller.power_on()
 
         if ok:
-            self._log(f"Reset complete: {message}", EPIC_SUCCESS)
+            self._log(message, EPIC_SUCCESS)
+            self.power_on_btn.setEnabled(False)
+            self.power_off_btn.setEnabled(True)
+            self.homing_btn.setEnabled(True)
+            self.rotate_btn.setEnabled(True)
+            self.lbl_power.setText("ON")
+            self.lbl_power.setStyleSheet(
+                f"color:{EPIC_SUCCESS}; font-size:14px; font-weight:600;"
+            )
         else:
-            self._log(f"Reset failed: {message}", EPIC_ERROR)
+            self._log(f"Power ON failed: {message}", EPIC_ERROR)
 
         self._push_status()
 
-    def _on_home(self):
-        self._log("Starting homing sequence...", EPIC_BLUE)
+    def _on_power_off(self):
+        self._log("Disabling motor power...", EPIC_WARNING)
+
+        ok, message = self.controller.power_off()
+
+        if ok:
+            self._log(message, EPIC_WARNING)
+            self.power_on_btn.setEnabled(True)
+            self.power_off_btn.setEnabled(False)
+            self.homing_btn.setEnabled(False)
+            self.rotate_btn.setEnabled(False)
+            self.lbl_power.setText("OFF")
+            self.lbl_power.setStyleSheet(
+                f"color:{EPIC_ERROR}; font-size:14px; font-weight:600;"
+            )
+        else:
+            self._log(f"Power OFF failed: {message}", EPIC_ERROR)
+
+        self._push_status()
+
+    def _on_homing(self):
+        self._log("Starting homing sequence to 0°...", EPIC_BLUE)
 
         ok, message = self.controller.home(True)
 
         if ok:
-            self._log(f"Homing complete: {message}", EPIC_SUCCESS)
+            self._log(f"Homing to 0° complete: {message}", EPIC_SUCCESS)
             self._update_position_label()
         else:
             self._log(f"Homing failed: {message}", EPIC_ERROR)
@@ -1049,12 +1055,11 @@ class MainWindow(QMainWindow):
         self.status_dot.set_status("OFFLINE", EPIC_ERROR)
 
         self.connect_btn.setEnabled(True)
-        self.reset_btn.setEnabled(False)
-        self.home_btn.setEnabled(False)
+        self.power_on_btn.setEnabled(False)
+        self.power_off_btn.setEnabled(False)
+        self.homing_btn.setEnabled(False)
         self.disconnect_btn.setEnabled(False)
-
-        self.port_combo.setEnabled(True)
-        self.baud_combo.setEnabled(True)
+        self.rotate_btn.setEnabled(False)
 
         self.lbl_state.setText("IDLE")
         self.lbl_power.setText("OFF")
@@ -1096,6 +1101,7 @@ class MainWindow(QMainWindow):
 
         self.rotate_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
+        self.homing_btn.setEnabled(False)
 
         self.lbl_state.setText("ROTATING (0.0%)")
         self.lbl_state.setStyleSheet(
@@ -1143,8 +1149,9 @@ class MainWindow(QMainWindow):
         )
 
     def _on_rotate_finished(self, success, message):
-        self.rotate_btn.setEnabled(True)
+        self.rotate_btn.setEnabled(self.controller.is_powered())
         self.stop_btn.setEnabled(False)
+        self.homing_btn.setEnabled(self.controller.is_powered())
 
         self.lbl_state.setText("IDLE")
         self.lbl_state.setStyleSheet(
@@ -1170,6 +1177,10 @@ class MainWindow(QMainWindow):
         if ok:
             self._log(f"Stop result: {message}", EPIC_WARNING)
 
+            self.power_on_btn.setEnabled(True)
+            self.power_off_btn.setEnabled(False)
+            self.homing_btn.setEnabled(False)
+            self.rotate_btn.setEnabled(False)
             self.lbl_power.setText("OFF")
             self.lbl_power.setStyleSheet(
                 f"color:{EPIC_ERROR}; font-size:14px; font-weight:600;"
@@ -1236,10 +1247,13 @@ class MainWindow(QMainWindow):
                 self._on_stop()
 
             elif cmd == "HOME":
-                self._on_home()
+                self._on_homing()
 
-            elif cmd == "RESET":
-                self._on_reset_controller()
+            elif cmd == "POWER_ON":
+                self._on_power_on()
+
+            elif cmd == "POWER_OFF":
+                self._on_power_off()
 
             else:
                 self._log(f"Unknown remote command: {cmd}", EPIC_ERROR)

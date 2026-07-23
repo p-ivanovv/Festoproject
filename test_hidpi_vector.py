@@ -47,6 +47,11 @@ class TestHiDPIVectorGraphics(unittest.TestCase):
         window = MainWindow()
         self.assertIsNotNone(window)
         self.assertEqual(window.windowTitle(), "FESTO MOTOR CONTROL")
+        self.assertFalse(hasattr(window, "port_combo"))
+        self.assertFalse(hasattr(window, "baud_combo"))
+        self.assertFalse(window.power_on_btn.isEnabled())
+        self.assertFalse(window.power_off_btn.isEnabled())
+        self.assertFalse(window.homing_btn.isEnabled())
         window.close()
 
 if __name__ == "__main__":
