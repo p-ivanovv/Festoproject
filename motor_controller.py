@@ -42,8 +42,8 @@ class MotorController:
 
             # Step 2: Enable position tracking relative to 0, but do not
             # energize the motor until Power ON is selected in the UI.
-            controls.motor_power = False
-            controls.motor_position_tracker = True
+            controls.motor_power(False)
+            controls.motor_position_tracker(True)
 
             self._connected = True
             self._current_position_deg = 0.0
@@ -62,7 +62,7 @@ class MotorController:
         if not self._connected:
             return False, "Not connected. Please connect first."
 
-        controls.motor_power = True
+        controls.motor_power(True)
         return True, "Motor power enabled."
 
     def power_off(self):
@@ -70,18 +70,18 @@ class MotorController:
         if not self._connected:
             return False, "Not connected. Please connect first."
 
-        controls.motor_power = False
+        controls.motor_power(False)
         return True, "Motor power disabled."
 
     def is_powered(self) -> bool:
         """Return whether the connected motor is currently powered."""
-        return self._connected and controls.motor_power
+        return self._connected
 
     def home(self, enable: bool = True):
         """Execute motor homing sequence to align position to 0."""
         if not self._connected:
             return False, "Not connected. Please connect first."
-        ok, msg = controls.motor_srt_homing(enable)
+        ok, msg = controls.motor_set_homing(enable)
         if ok and enable:
             self._current_position_deg = 0.0
         return ok, msg

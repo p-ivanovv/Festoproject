@@ -39,12 +39,12 @@ class TestControlsPackage(unittest.TestCase):
 
         # Homing without power should fail safely
         controls.motor_power = False
-        ok, msg = controls.motor_srt_homing(True)
+        ok, msg = controls.motor_set_homing(True)
         self.assertFalse(ok)
 
         # Power ON -> Homing succeeds
         controls.motor_power = True
-        ok, msg = controls.motor_srt_homing(True)
+        ok, msg = controls.motor_set_homing(True)
         self.assertTrue(ok)
 
     def test_03_motion_safety(self):
