@@ -11,12 +11,16 @@ class MotorController:
     High-level controller interface interacting with the low-level motor functions
     defined in `src.controls`. Ensures safe operations, error clearing, speed caps,
     and automatic resource cleanup.
+
+    Position is tracked locally based on rotation parameters —
+    no internal controls state is read beyond the spec.
     """
 
     def __init__(self):
         self._connected = False
         self._port = None
         self._baudrate = None
+        self._current_position_deg = 0.0
         
     def is_connected(self) -> bool:
         return self._connected
@@ -44,6 +48,7 @@ class MotorController:
             controls.motor_position_tracker = True
 
             self._connected = True
+            self._current_position_deg = 0.0
             return True, f"Connected to {port} at {baudrate} baud (Power ON, Reset OK, Tracking ON)"
         
         except Exception as exc:
@@ -58,7 +63,10 @@ class MotorController:
         """Execute motor homing sequence to align position to 0."""
         if not self._connected:
             return False, "Not connected. Please connect first."
-        return controls.motor_srt_homing(enable)
+        ok, msg = controls.motor_srt_homing(enable)
+        if ok and enable:
+            self._current_position_deg = 0.0
+        return ok, msg
 
     def disconnect(self):
         """Disconnect from the motor controller and safely clean up resources."""
@@ -67,6 +75,7 @@ class MotorController:
             self._connected = False
             self._port = None
             self._baudrate = None
+            self._current_position_deg = 0.0
             return True, "Disconnected and hardware safely cleaned up"
         return True, "Already disconnected"
     
@@ -75,7 +84,8 @@ class MotorController:
         Rotate motor safely by target degrees:
         - Calculates target revolutions: degrees / 360.0
         - Enforces safe speed limits (max 200 RPM, default recommended <= 30 RPM)
-        - Triggers motion via controls.motor_move() passing real-time progress_callback
+        - Tracks position locally based on elapsed time ratio
+        - Triggers motion via controls.motor_move()
         """
         if not self._connected:
             return False, "Not connected. Please connect first."
@@ -85,14 +95,28 @@ class MotorController:
 
         try:
             # Convert degrees to revolutions (1 revolution = 360 degrees)
-            revolutions = (degrees / 360.0) if direction.upper() in ["CW", "CLOCKWISE"] else -(degrees / 360.0)
+            signed_degrees = degrees if direction.upper() in ["CW", "CLOCKWISE"] else -degrees
+            revolutions = signed_degrees / 360.0
+            start_pos = self._current_position_deg
+
+            # Wrap progress callback to track position locally from elapsed ratio
+            def _local_progress_cb(cur_deg, target_deg, elapsed, total):
+                ratio = min(1.0, elapsed / total) if total > 0 else 1.0
+                self._current_position_deg = (start_pos + signed_degrees * ratio) % 360.0
+                if progress_callback:
+                    progress_callback(self._current_position_deg, target_deg, elapsed, total)
 
             # Set speed and revolution target in controls
             controls.motor_speed = speed_rpm
             controls.motor_revolution = revolutions
 
-            # Trigger movement with real-time progress callback
-            ok_move, msg_move = controls.motor_move(progress_callback=progress_callback)
+            # Trigger movement with local progress tracking
+            ok_move, msg_move = controls.motor_move(progress_callback=_local_progress_cb)
+
+            if ok_move:
+                # Set exact final position on success
+                self._current_position_deg = (start_pos + signed_degrees) % 360.0
+
             return ok_move, msg_move
         
         except Exception as exc:
@@ -107,11 +131,10 @@ class MotorController:
         return True, "Emergency stop activated. Motor power cut OFF!"
     
     def get_position(self):
-        """Get current motor position from tracker."""
+        """Get current motor position calculated locally."""
         if not self._connected:
             return None, "Not connected"
-        hw = controls.get_hardware_instance()
-        return hw.current_position_deg, f"Position: {hw.current_position_deg:.2f}°"
+        return self._current_position_deg, f"Position: {self._current_position_deg:.2f}°"
 
     def cleanup(self):
         """Cleanup motor resources on program shutdown."""
