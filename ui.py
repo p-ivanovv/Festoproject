@@ -1,7 +1,10 @@
 import os
 from datetime import datetime
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QByteArray, QBuffer, QIODevice, QSize
+from PyQt5.QtCore import (
+    Qt, QThread, pyqtSignal, QByteArray, QBuffer, QIODevice, QSize, QSettings,
+    QPropertyAnimation, QEasingCurve
+)
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QComboBox,
@@ -72,7 +75,7 @@ QGroupBox {{
     border-radius: 0px;
     margin-top: 12px;
     padding: 16px;
-    background-color: {EPIC_CARD_BG};
+    background-color: rgba(23, 24, 28, 238);
     font-size: 11px;
     color: {EPIC_DIM};
     letter-spacing: 1px;
@@ -285,6 +288,86 @@ def pixmap_to_base64_src(pixmap):
     return f"data:image/png;base64,{b64_str}"
 
 
+class FestoSplashScreen(QWidget):
+    """Short, non-blocking startup view displayed before the main window."""
+
+    def __init__(self):
+        super().__init__(
+            None,
+            Qt.SplashScreen | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedSize(440, 250)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+
+        card = QFrame()
+        card.setObjectName("splashCard")
+        card.setStyleSheet(f"""
+            QFrame#splashCard {{
+                background-color: rgba(23, 24, 28, 246);
+                border: 1px solid {EPIC_BORDER};
+                border-radius: 18px;
+            }}
+        """)
+        root.addWidget(card)
+
+        content = QVBoxLayout(card)
+        content.setContentsMargins(36, 32, 36, 32)
+        content.setSpacing(10)
+
+        accent = QFrame()
+        accent.setFixedHeight(4)
+        accent.setStyleSheet(
+            f"background-color: {EPIC_BLUE}; border-radius: 2px;"
+        )
+        content.addWidget(accent)
+        content.addStretch()
+
+        title = QLabel("FESTO")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(
+            f"color: {EPIC_TEXT}; font-size: 34px; font-weight: 700; "
+            "letter-spacing: 6px;"
+        )
+        content.addWidget(title)
+
+        subtitle = QLabel("MOTOR CONTROL SYSTEM")
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setStyleSheet(
+            f"color: {EPIC_BLUE}; font-size: 13px; font-weight: 700; "
+            "letter-spacing: 2px;"
+        )
+        content.addWidget(subtitle)
+
+        status = QLabel("Preparing controller interface - Please wait")
+        status.setAlignment(Qt.AlignCenter)
+        status.setStyleSheet(f"color: {EPIC_DIM}; font-size: 12px;")
+        content.addWidget(status)
+        content.addStretch()
+
+        self._fade_animation = None
+
+    def fade_in(self):
+        self.setWindowOpacity(0.0)
+        self.show()
+        self._animate_opacity(0.0, 1.0, 260)
+
+    def fade_out(self, on_finished):
+        self._animate_opacity(1.0, 0.0, 360, on_finished)
+
+    def _animate_opacity(self, start, end, duration, on_finished=None):
+        self._fade_animation = QPropertyAnimation(self, b"windowOpacity", self)
+        self._fade_animation.setStartValue(start)
+        self._fade_animation.setEndValue(end)
+        self._fade_animation.setDuration(duration)
+        self._fade_animation.setEasingCurve(QEasingCurve.InOutCubic)
+        if on_finished is not None:
+            self._fade_animation.finished.connect(on_finished)
+        self._fade_animation.start()
+
+
 class RotateWorker(QThread):
     finished = pyqtSignal(bool, str)
     progress = pyqtSignal(float, float, float, float)
@@ -315,11 +398,12 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("FESTO MOTOR CONTROL")
         self.setMinimumSize(850, 700)
-        self.showMaximized()
 
         self.controller = MotorController()
         self.worker = None
+        self.remote = None
         self.last_logged_speed = 30
+        self.settings = QSettings("Festo", "FestoMotorControl")
 
         self.setStyleSheet(STYLE)
 
@@ -338,12 +422,17 @@ class MainWindow(QMainWindow):
             icon_b64=self.icon_check_b64
         )
 
-        self.remote = GistRemoteListener()
-        self.remote.command_received.connect(self.on_remote_command)
-        self.remote.start()
+        self._apply_gist_settings(show_log=False)
 
-        self._log("Gist remote listener started.", EPIC_BLUE)
-        self._push_status()
+    def fade_in(self):
+        """Makes the completed desktop interface appear smoothly after splash."""
+        self.setWindowOpacity(0.0)
+        self._fade_animation = QPropertyAnimation(self, b"windowOpacity", self)
+        self._fade_animation.setStartValue(0.0)
+        self._fade_animation.setEndValue(1.0)
+        self._fade_animation.setDuration(300)
+        self._fade_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self._fade_animation.start()
 
     def closeEvent(self, event):
         self._log(
@@ -353,7 +442,8 @@ class MainWindow(QMainWindow):
 
         self._push_status()
         controls.cleanup()
-        self.remote.stop()
+        if self.remote is not None:
+            self.remote.stop()
         event.accept()
 
     def _build_ui(self):
@@ -371,6 +461,7 @@ class MainWindow(QMainWindow):
 
         root.addWidget(self._make_header())
         root.addWidget(h_sep())
+        root.addWidget(self._make_gist_settings_box())
         root.addWidget(self._make_connection_box())
 
         mid = QHBoxLayout()
@@ -419,6 +510,96 @@ class MainWindow(QMainWindow):
         row.addWidget(self.status_dot)
 
         return widget
+
+    def _make_gist_settings_box(self):
+        group_box = QGroupBox("GitHub Gist Connection")
+        column = QVBoxLayout(group_box)
+        column.setSpacing(10)
+
+        gist_id_row = QHBoxLayout()
+        gist_id_label = QLabel("Gist ID:")
+        gist_id_label.setFixedWidth(92)
+
+        self.gist_id_input = QLineEdit()
+        self.gist_id_input.setPlaceholderText("Enter Gist ID")
+        self.gist_id_input.setText(
+            self.settings.value("gist_id", "", type=str)
+        )
+        gist_id_row.addWidget(gist_id_label)
+        gist_id_row.addWidget(self.gist_id_input)
+        column.addLayout(gist_id_row)
+
+        token_row = QHBoxLayout()
+        token_label = QLabel("Gist token:")
+        token_label.setFixedWidth(92)
+
+        self.gist_token_input = QLineEdit()
+        self.gist_token_input.setPlaceholderText("Enter GitHub token")
+        self.gist_token_input.setEchoMode(QLineEdit.Password)
+        self.gist_token_input.setText(
+            self.settings.value("gist_token", "", type=str)
+        )
+        token_row.addWidget(token_label)
+        token_row.addWidget(self.gist_token_input)
+        column.addLayout(token_row)
+
+        action_row = QHBoxLayout()
+        self.apply_gist_btn = epic_btn("Apply Gist Settings", EPIC_BLUE)
+        self.apply_gist_btn.clicked.connect(self._apply_gist_settings)
+
+        self.gist_status_label = QLabel("Gist connection is not configured.")
+        self.gist_status_label.setStyleSheet(
+            f"color:{EPIC_WARNING}; font-size:12px;"
+        )
+        action_row.addWidget(self.apply_gist_btn)
+        action_row.addWidget(self.gist_status_label)
+        action_row.addStretch()
+        column.addLayout(action_row)
+
+        return group_box
+
+    def _apply_gist_settings(self, show_log=True):
+        gist_id = self.gist_id_input.text().strip()
+        github_token = self.gist_token_input.text().strip()
+
+        if self.remote is not None:
+            self.remote.stop()
+            self.remote = None
+
+        if not gist_id or not github_token:
+            self.settings.remove("gist_id")
+            self.settings.remove("gist_token")
+            self.settings.sync()
+            self.gist_status_label.setText(
+                "Enter both Gist ID and token to enable remote control."
+            )
+            self.gist_status_label.setStyleSheet(
+                f"color:{EPIC_WARNING}; font-size:12px;"
+            )
+            if show_log:
+                self._log(
+                    "Gist settings are incomplete. Remote control is disabled.",
+                    EPIC_WARNING
+                )
+            return
+
+        self.settings.setValue("gist_id", gist_id)
+        self.settings.setValue("gist_token", github_token)
+        self.settings.sync()
+
+        self.remote = GistRemoteListener(gist_id, github_token)
+        self.remote.command_received.connect(self.on_remote_command)
+        self.remote.start()
+
+        self.gist_status_label.setText("Gist remote control is active.")
+        self.gist_status_label.setStyleSheet(
+            f"color:{EPIC_SUCCESS}; font-size:12px;"
+        )
+        if show_log:
+            self._log("Gist settings applied. Remote listener started.", EPIC_BLUE)
+        else:
+            self._log("Gist remote listener started.", EPIC_BLUE)
+        self._push_status()
 
     def _make_connection_box(self):
         group_box = QGroupBox("Connection & Hardware Controls")
@@ -715,7 +896,11 @@ class MainWindow(QMainWindow):
             "power": self.lbl_power.text(),
         }
 
-        push_status(status)
+        push_status(
+            status,
+            self.gist_id_input.text(),
+            self.gist_token_input.text(),
+        )
 
     def _on_port_change(self, port):
         self._log(f"COM port changed to {port}", EPIC_BLUE)

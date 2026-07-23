@@ -5,20 +5,21 @@ import time
 import requests
 from PyQt5.QtCore import QObject, pyqtSignal
 
-# ── ПОПЪЛНИ ТУК ─────────────────────────────────────
-GITHUB_TOKEN = "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"
-GIST_ID = "f7892579389e55fdedac6544fccf2751"
-# ─────────────────────────────────────────────────────
 
 COMMAND_FILENAME = "command.json"
 STATUS_FILENAME = "status.json"
 POLL_INTERVAL = 2  # seconds
 
-HEADERS = {
-    "Authorization": f"Bearer {GITHUB_TOKEN}",
-    "Accept": "application/vnd.github+json",
-}
-GIST_URL = f"https://api.github.com/gists/{GIST_ID}"
+
+def _headers(github_token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {github_token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+
+def _gist_url(gist_id: str) -> str:
+    return f"https://api.github.com/gists/{gist_id}"
 
 
 class GistRemoteListener(QObject):
@@ -26,8 +27,10 @@ class GistRemoteListener(QObject):
 
     command_received = pyqtSignal(str, object)
 
-    def __init__(self):
+    def __init__(self, gist_id: str, github_token: str):
         super().__init__()
+        self._headers = _headers(github_token.strip())
+        self._gist_url = _gist_url(gist_id.strip())
         self._last_command_id = None
         self._running = False
         self._thread = None
@@ -47,13 +50,17 @@ class GistRemoteListener(QObject):
         while self._running:
             try:
                 self._check_once()
-            except Exception as e:
-                print(f"[GistRemote] Error polling gist: {e}")
+            except Exception as error:
+                print(f"[GistRemote] Error polling gist: {error}")
 
             time.sleep(POLL_INTERVAL)
 
     def _check_once(self):
-        response = requests.get(GIST_URL, headers=HEADERS, timeout=10)
+        response = requests.get(
+            self._gist_url,
+            headers=self._headers,
+            timeout=10,
+        )
         response.raise_for_status()
 
         data = response.json()
@@ -69,7 +76,11 @@ class GistRemoteListener(QObject):
         payload = json.loads(content)
         command_id = payload.get("command_id")
 
-        if command_id is not None and command_id != self._last_command_id:
+        if (
+            self._running
+            and command_id is not None
+            and command_id != self._last_command_id
+        ):
             self._last_command_id = command_id
             self.command_received.emit(
                 payload.get("cmd", ""),
@@ -77,8 +88,17 @@ class GistRemoteListener(QObject):
             )
 
 
-def push_status(status: dict):
+def push_status(status: dict, gist_id: str, github_token: str):
     """Writes the current desktop state into status.json asynchronously."""
+
+    gist_id = gist_id.strip()
+    github_token = github_token.strip()
+
+    if not gist_id or not github_token:
+        return
+
+    gist_url = _gist_url(gist_id)
+    headers = _headers(github_token)
 
     def _do_push():
         try:
@@ -91,14 +111,14 @@ def push_status(status: dict):
             }
 
             response = requests.patch(
-                GIST_URL,
-                headers=HEADERS,
+                gist_url,
+                headers=headers,
                 json=body,
                 timeout=10,
             )
             response.raise_for_status()
 
-        except Exception as e:
-            print(f"[GistRemote] Error pushing status: {e}")
+        except Exception as error:
+            print(f"[GistRemote] Error pushing status: {error}")
 
     threading.Thread(target=_do_push, daemon=True).start()
