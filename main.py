@@ -14,6 +14,7 @@ def main():
     args, unknown = parser.parse_known_args()
 
     controls.set_offline(args.offline)
+    controls.init()
 
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)

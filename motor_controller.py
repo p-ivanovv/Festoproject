@@ -2,29 +2,12 @@ import time
 from src import controls
 
 
-class MotorControllerError(Exception):
-    pass
-
-
 class MotorController:
     """High-level interface for Festo motor control."""
 
     def __init__(self):
-        self._connected = True
         self._is_powered = False
         self._current_position_deg = 0.0
-
-    def is_connected(self) -> bool:
-        return self._connected
-
-    def connect(self):
-        controls.controller_reset()
-        controls.motor_power(False)
-        controls.motor_position_tracker(True)
-        self._connected = True
-        self._is_powered = False
-        self._current_position_deg = 0.0
-        return True, "Controller initialized. Motor power is OFF."
 
     def reset_controller(self):
         controls.controller_reset()
@@ -47,12 +30,6 @@ class MotorController:
         controls.motor_set_homing()
         self._current_position_deg = 0.0
         return True, "Homing complete."
-
-    def disconnect(self):
-        controls.cleanup()
-        self._connected = False
-        self._is_powered = False
-        return True, "Disconnected and hardware cleaned up."
 
     def rotate(self, degrees: float, direction: str = "CW", speed_rpm: int = 30, progress_callback=None):
         if not self._is_powered:
@@ -90,11 +67,8 @@ class MotorController:
         except Exception as exc:
             return False, f"Rotation execution failed: {str(exc)}"
 
-    def stop(self):
-        return self.power_off()
-
     def get_position(self):
         return self._current_position_deg, f"Position: {self._current_position_deg:.2f}°"
 
     def cleanup(self):
-        return controls.cleanup()
+        controls.cleanup()

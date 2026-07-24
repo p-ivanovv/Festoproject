@@ -1,4 +1,3 @@
-import os
 from datetime import datetime
 
 from PyQt5.QtCore import Qt, QSettings, QPropertyAnimation, QEasingCurve
@@ -6,13 +5,13 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QComboBox,
     QSlider, QTextEdit, QGroupBox, QScrollArea,
-    QFrame, QSizePolicy, QSpacerItem
+    QSizePolicy, QSpacerItem
 )
 
 from motor_controller import MotorController
 from src import controls
 from src.styles import (
-    EPIC_BLUE, EPIC_DARK_BG, EPIC_CARD_BG, EPIC_BORDER, EPIC_TEXT,
+    EPIC_BLUE, EPIC_CARD_BG, EPIC_BORDER, EPIC_TEXT,
     EPIC_DIM, EPIC_SUCCESS, EPIC_WARNING, EPIC_ERROR, STYLE,
     epic_btn, h_sep, pixmap_to_base64_src
 )
@@ -66,7 +65,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self._log("Closing application: Safe hardware cleanup...", EPIC_WARNING)
         self._push_status()
-        controls.cleanup()
+        self.controller.cleanup()
         if self.remote is not None:
             self.remote.stop()
         event.accept()
@@ -438,42 +437,45 @@ class MainWindow(QMainWindow):
 
     def _on_power_on(self):
         self._log("Enabling motor power...", EPIC_BLUE)
-        controls.motor_power(True)
-        self.controller._is_powered = True
-        self._log("Motor power enabled.", EPIC_SUCCESS)
-        self.power_on_btn.setEnabled(False)
-        self.power_off_btn.setEnabled(True)
-        self.homing_btn.setEnabled(True)
-        self.rotate_btn.setEnabled(True)
-        self.lbl_power.setText("ON")
-        self.lbl_power.setStyleSheet(f"color:{EPIC_SUCCESS}; font-size:14px; font-weight:600;")
+        ok, msg = self.controller.power_on()
+        if ok:
+            self._log(msg, EPIC_SUCCESS)
+            self.power_on_btn.setEnabled(False)
+            self.power_off_btn.setEnabled(True)
+            self.homing_btn.setEnabled(True)
+            self.rotate_btn.setEnabled(True)
+            self.lbl_power.setText("ON")
+            self.lbl_power.setStyleSheet(f"color:{EPIC_SUCCESS}; font-size:14px; font-weight:600;")
+        else:
+            self._log(msg, EPIC_ERROR)
         self._push_status()
 
     def _on_power_off(self):
         self._log("Disabling motor power...", EPIC_WARNING)
-        controls.motor_power(False)
-        self.controller._is_powered = False
-        self._log("Motor power disabled.", EPIC_WARNING)
-        self.power_on_btn.setEnabled(True)
-        self.power_off_btn.setEnabled(False)
-        self.homing_btn.setEnabled(False)
-        self.rotate_btn.setEnabled(False)
-        self.lbl_power.setText("OFF")
-        self.lbl_power.setStyleSheet(f"color:{EPIC_ERROR}; font-size:14px; font-weight:600;")
+        ok, msg = self.controller.power_off()
+        if ok:
+            self._log(msg, EPIC_WARNING)
+            self.power_on_btn.setEnabled(True)
+            self.power_off_btn.setEnabled(False)
+            self.homing_btn.setEnabled(False)
+            self.rotate_btn.setEnabled(False)
+            self.lbl_power.setText("OFF")
+            self.lbl_power.setStyleSheet(f"color:{EPIC_ERROR}; font-size:14px; font-weight:600;")
+        else:
+            self._log(msg, EPIC_ERROR)
         self._push_status()
 
     def _on_homing(self):
         self._log("Starting homing sequence to 0°...", EPIC_BLUE)
-        controls.motor_set_homing()
-        self.controller._current_position_deg = 0.0
-        self._log("Homing to 0° complete.", EPIC_SUCCESS)
+        ok, msg = self.controller.home()
+        self._log(msg, EPIC_SUCCESS if ok else EPIC_ERROR)
         self._update_position_label()
         self._push_status()
 
     def _on_reset(self):
         self._log("Resetting controller...", EPIC_BLUE)
-        controls.controller_reset()
-        self._log("Reset complete.", EPIC_SUCCESS)
+        ok, msg = self.controller.reset_controller()
+        self._log(msg, EPIC_SUCCESS if ok else EPIC_ERROR)
         self._push_status()
 
     def _on_rotate(self):
@@ -529,7 +531,7 @@ class MainWindow(QMainWindow):
 
     def _on_stop(self):
         self._log("Emergency stop activated!", EPIC_ERROR)
-        ok, message = self.controller.stop()
+        ok, message = self.controller.power_off()
         if ok:
             self._log(f"Stop result: {message}", EPIC_WARNING)
             self.power_on_btn.setEnabled(True)

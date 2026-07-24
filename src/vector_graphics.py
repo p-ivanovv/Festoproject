@@ -1,6 +1,6 @@
 import os
 import re
-from PyQt5.QtCore import Qt, QByteArray, QSize, QRectF
+from PyQt5.QtCore import Qt, QByteArray, QRectF
 from PyQt5.QtGui import QPainter, QPixmap, QIcon
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QLabel, QApplication

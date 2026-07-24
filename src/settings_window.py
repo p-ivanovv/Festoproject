@@ -1,5 +1,5 @@
 from PyQt5.QtCore import Qt, QSettings, pyqtSignal
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QGroupBox, QFrame
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QGroupBox
 from src.styles import (
     EPIC_BLUE, EPIC_CARD_BG, EPIC_BORDER, EPIC_TEXT,
     EPIC_DIM, EPIC_SUCCESS, EPIC_WARNING, STYLE, epic_btn, h_sep
