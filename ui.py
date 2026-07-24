@@ -593,8 +593,10 @@ class MainWindow(QMainWindow):
                 self._on_rotate()
             elif cmd == "STOP":
                 self._on_stop()
-            elif cmd == "HOME":
+            elif cmd in ("HOME", "HOMING"):
                 self._on_homing()
+            elif cmd == "RESET":
+                self._on_reset()
             elif cmd == "POWER_ON":
                 self._on_power_on()
             elif cmd == "POWER_OFF":
