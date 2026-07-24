@@ -248,7 +248,7 @@ class MainWindow(QMainWindow):
         column.addLayout(speed_row)
 
         self.speed_slider = QSlider(Qt.Horizontal)
-        self.speed_slider.setRange(1, 1100)
+        self.speed_slider.setRange(1, 300)
         self.speed_slider.setValue(30)
         self.speed_slider.valueChanged.connect(self._on_speed_visual_change)
         self.speed_slider.sliderReleased.connect(self._on_speed_released)

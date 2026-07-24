@@ -65,10 +65,10 @@ def motor_move():
     print("motor movement")
 
 
-def motor_revolution(degrees: float):
+def motor_revolution(revolutions: float):
     if codesys_client:
-        codesys_client.set_variable("GVL.rpm_sp", degrees)
-    print(f"Motor set to move {degrees}")
+        codesys_client.set_variable("GVL.rpm_sp", revolutions)
+    print(f"Motor set to move {revolutions} rev")
 
 
 def motor_speed(rpm: int):

@@ -37,14 +37,16 @@ class MotorController:
 
         try:
             signed_degrees = degrees if direction.upper() in ["CW", "CLOCKWISE"] else -degrees
-            revolutions = signed_degrees / 360.0
+            delta_revolutions = signed_degrees / 360.0
             start_pos = self._current_position_deg
+            target_pos = start_pos + signed_degrees
+            target_revolutions = target_pos / 360.0
 
             controls.motor_speed(speed_rpm)
-            controls.motor_revolution(revolutions)
+            controls.motor_revolution(target_revolutions)
             controls.motor_move()
 
-            duration = max(0.5, abs(revolutions) * 60.0 / max(1, speed_rpm))
+            duration = max(0.5, abs(delta_revolutions) * 60.0 / max(1, speed_rpm))
             target_interval = 0.5
             steps = max(1, int(duration / target_interval))
             interval = duration / steps
