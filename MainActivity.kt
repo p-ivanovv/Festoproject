@@ -1,6 +1,3 @@
-Exit code: 0
-Wall time: 1.1 seconds
-Output:
 package com.example.festomotorremote
 
 import android.os.Bundle
@@ -42,6 +39,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -210,6 +208,7 @@ fun FestoRemoteScreen() {
     var githubToken by remember {
         mutableStateOf(preferences.getString(GITHUB_TOKEN_KEY, "").orEmpty())
     }
+    var showGistSettings by remember { mutableStateOf(false) }
 
     var status by remember { mutableStateOf<MotorStatus?>(null) }
     var loadingStatus by remember { mutableStateOf(true) }
@@ -391,340 +390,405 @@ fun FestoRemoteScreen() {
         }
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(EpicDark)
     ) {
-        TopAppBar(
-            title = {
-                Column {
-                    Text(
-                        text = "FESTO DRIVE",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 19.sp,
-                        color = EpicText
-                    )
-
-                    Text(
-                        text = "Remote motor controller",
-                        fontSize = 12.sp,
-                        color = EpicDim
-                    )
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = EpicDark
-            )
-        )
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            SectionCard(title = "GitHub Gist") {
-                Text(
-                    text = "Enter the shared Gist credentials used by the desktop app.",
-                    color = EpicDim,
-                    fontSize = 13.sp
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(
+                            text = "FESTO DRIVE",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 19.sp,
+                            color = EpicText
+                        )
+
+                        Text(
+                            text = "Remote motor controller",
+                            fontSize = 12.sp,
+                            color = EpicDim
+                        )
+                    }
+                },
+                actions = {
+                    TextButton(onClick = { showGistSettings = true }) {
+                        Text(
+                            text = "GIST",
+                            color = FestoCyan,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = EpicDark
                 )
-
-                Spacer(Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = gistId,
-                    onValueChange = { gistId = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("Gist ID") }
-                )
-
-                Spacer(Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = githubToken,
-                    onValueChange = { githubToken = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("GitHub token") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password
-                    )
-                )
-
-                Spacer(Modifier.height(10.dp))
-
-                ActionButton(
-                    text = "SAVE GIST SETTINGS",
-                    color = EpicBlue,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !requestInProgress
-                ) {
-                    saveGistSettings()
-                }
-            }
-
-            StatusCard(
-                status = status,
-                isLoading = loadingStatus
             )
 
-            if (lastError != null) {
-                ErrorCard(lastError!!)
-            }
-
-            SectionCard(title = "System controls") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    ActionButton(
-                        text = "POWER ON",
-                        color = EpicSuccess,
-                        modifier = Modifier.weight(1f),
-                        enabled = !requestInProgress
-                    ) {
-                        sendCommand("POWER_ON")
-                    }
-
-                    ActionButton(
-                        text = "POWER OFF",
-                        color = EpicError,
-                        modifier = Modifier.weight(1f),
-                        enabled = !requestInProgress
-                    ) {
-                        sendCommand("POWER_OFF")
-                    }
-                }
-
-                Spacer(Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    ActionButton(
-                        text = "HOMING",
-                        color = EpicBlue,
-                        modifier = Modifier.weight(1f),
-                        enabled = !requestInProgress
-                    ) {
-                        sendCommand("HOME")
-                    }
-
-                    ActionButton(
-                        text = "RESET",
-                        color = EpicWarning,
-                        modifier = Modifier.weight(1f),
-                        enabled = !requestInProgress
-                    ) {
-                        sendCommand("RESET")
-                    }
-                }
-
-            }
-
-            SectionCard(title = "Rotation Control") {
-                Text(
-                    text = "Degrees",
-                    color = EpicDim,
-                    fontSize = 13.sp
-                )
-
-                Spacer(Modifier.height(6.dp))
-
-                OutlinedTextField(
-                    value = degreesText,
-                    onValueChange = {
-                        degreesText = it.filter(Char::isDigit)
-                        hasLocalDegreesDraft = true
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Number
-                    ),
-                    label = {
-                        Text("Example: 360")
-                    }
-                )
-
-                Spacer(Modifier.height(10.dp))
-
-                ActionButton(
-                    text = "SET DEGREES",
-                    color = EpicBlue,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !requestInProgress && degreesText.isNotBlank()
-                ) {
-                    focusManager.clearFocus()
-                    sendCommand("SET_DEGREES", degreesText)
-                }
-
-                Spacer(Modifier.height(18.dp))
-
-                Text(
-                    text = "Direction",
-                    color = EpicDim,
-                    fontSize = 13.sp
-                )
-
-                Spacer(Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    DirectionButton(
-                        text = "CW",
-                        selected = direction == "CW",
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        direction = "CW"
-                        focusManager.clearFocus()
-                        sendCommand("SET_DIRECTION", "CW")
-                    }
-
-                    DirectionButton(
-                        text = "CCW",
-                        selected = direction == "CCW",
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        direction = "CCW"
-                        focusManager.clearFocus()
-                        sendCommand("SET_DIRECTION", "CCW")
-                    }
-                }
-
-                Spacer(Modifier.height(18.dp))
-
-                Text(
-                    text = "Speed: $speed RPM",
-                    color = if (speed > 30) EpicWarning else EpicBlue,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
-
-                Slider(
-                    value = speed.toFloat(),
-                    onValueChange = {
-                        speed = it.roundToInt()
-                        hasLocalSpeedDraft = true
-                    },
-                    valueRange = 1f..1100f,
-                    steps = 1098,
-                    colors = SliderDefaults.colors(
-                        thumbColor = EpicBlue,
-                        activeTrackColor = EpicBlue,
-                        inactiveTrackColor = EpicBorder
-                    )
-                )
-
-                ActionButton(
-                    text = "SET SPEED: $speed RPM",
-                    color = EpicBlue,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !requestInProgress
-                ) {
-                    focusManager.clearFocus()
-                    sendCommand("SET_SPEED", speed)
-                }
-
-                Spacer(Modifier.height(16.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    ActionButton(
-                        text = "START ROTATION",
-                        color = EpicSuccess,
-                        modifier = Modifier.weight(1f),
-                        enabled = !requestInProgress
-                    ) {
-                        sendCommand("ROTATE")
-                    }
-
-                    ActionButton(
-                        text = "EMERGENCY STOP",
-                        color = EpicError,
-                        modifier = Modifier.weight(1f),
-                        enabled = !requestInProgress
-                    ) {
-                        sendCommand("STOP")
-                    }
-                }
-            }
-
-            SectionCard(title = "Quick Presets") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    PresetButton("90°", Modifier.weight(1f)) {
-                        degreesText = "90"
-                        hasLocalDegreesDraft = true
-                        sendCommand("SET_DEGREES", "90")
-                    }
-
-                    PresetButton("180°", Modifier.weight(1f)) {
-                        degreesText = "180"
-                        hasLocalDegreesDraft = true
-                        sendCommand("SET_DEGREES", "180")
-                    }
-
-                    PresetButton("360°", Modifier.weight(1f)) {
-                        degreesText = "360"
-                        hasLocalDegreesDraft = true
-                        sendCommand("SET_DEGREES", "360")
-                    }
-                }
-
-                Spacer(Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    PresetButton("720°", Modifier.weight(1f)) {
-                        degreesText = "720"
-                        hasLocalDegreesDraft = true
-                        sendCommand("SET_DEGREES", "720")
-                    }
-
-                    PresetButton("1800°", Modifier.weight(1f)) {
-                        degreesText = "1800"
-                        hasLocalDegreesDraft = true
-                        sendCommand("SET_DEGREES", "1800")
-                    }
-                }
-            }
-
-            if (requestInProgress) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator(
-                        color = EpicBlue,
-                        modifier = Modifier.width(26.dp)
-                    )
-                }
-            }
-
-            Text(
-                text = "Desktop changes synchronize automatically every 2 seconds",
-                color = EpicDim,
-                fontSize = 12.sp,
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 12.dp)
-            )
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+
+                StatusCard(
+                    status = status,
+                    isLoading = loadingStatus
+                )
+
+                if (lastError != null) {
+                    ErrorCard(lastError!!)
+                }
+
+                SectionCard(title = "System controls") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        ActionButton(
+                            text = "POWER ON",
+                            color = EpicSuccess,
+                            modifier = Modifier.weight(1f),
+                            enabled = !requestInProgress
+                        ) {
+                            sendCommand("POWER_ON")
+                        }
+
+                        ActionButton(
+                            text = "POWER OFF",
+                            color = EpicError,
+                            modifier = Modifier.weight(1f),
+                            enabled = !requestInProgress
+                        ) {
+                            sendCommand("POWER_OFF")
+                        }
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        ActionButton(
+                            text = "HOMING",
+                            color = EpicBlue,
+                            modifier = Modifier.weight(1f),
+                            enabled = !requestInProgress
+                        ) {
+                            sendCommand("HOME")
+                        }
+
+                        ActionButton(
+                            text = "RESET",
+                            color = EpicWarning,
+                            modifier = Modifier.weight(1f),
+                            enabled = !requestInProgress
+                        ) {
+                            sendCommand("RESET")
+                        }
+                    }
+
+                }
+
+                SectionCard(title = "Rotation Control") {
+                    Text(
+                        text = "Degrees",
+                        color = EpicDim,
+                        fontSize = 13.sp
+                    )
+
+                    Spacer(Modifier.height(6.dp))
+
+                    OutlinedTextField(
+                        value = degreesText,
+                        onValueChange = {
+                            degreesText = it.filter(Char::isDigit)
+                            hasLocalDegreesDraft = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number
+                        ),
+                        label = {
+                            Text("Example: 360")
+                        }
+                    )
+
+                    Spacer(Modifier.height(10.dp))
+
+                    ActionButton(
+                        text = "SET DEGREES",
+                        color = EpicBlue,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !requestInProgress && degreesText.isNotBlank()
+                    ) {
+                        focusManager.clearFocus()
+                        sendCommand("SET_DEGREES", degreesText)
+                    }
+
+                    Spacer(Modifier.height(18.dp))
+
+                    Text(
+                        text = "Direction",
+                        color = EpicDim,
+                        fontSize = 13.sp
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        DirectionButton(
+                            text = "CW",
+                            selected = direction == "CW",
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            direction = "CW"
+                            focusManager.clearFocus()
+                            sendCommand("SET_DIRECTION", "CW")
+                        }
+
+                        DirectionButton(
+                            text = "CCW",
+                            selected = direction == "CCW",
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            direction = "CCW"
+                            focusManager.clearFocus()
+                            sendCommand("SET_DIRECTION", "CCW")
+                        }
+                    }
+
+                    Spacer(Modifier.height(18.dp))
+
+                    Text(
+                        text = "Speed: $speed RPM",
+                        color = if (speed > 30) EpicWarning else EpicBlue,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+
+                    Slider(
+                        value = speed.toFloat(),
+                        onValueChange = {
+                            speed = it.roundToInt()
+                            hasLocalSpeedDraft = true
+                        },
+                        valueRange = 1f..1100f,
+                        steps = 1098,
+                        colors = SliderDefaults.colors(
+                            thumbColor = EpicBlue,
+                            activeTrackColor = EpicBlue,
+                            inactiveTrackColor = EpicBorder
+                        )
+                    )
+
+                    ActionButton(
+                        text = "SET SPEED: $speed RPM",
+                        color = EpicBlue,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !requestInProgress
+                    ) {
+                        focusManager.clearFocus()
+                        sendCommand("SET_SPEED", speed)
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        ActionButton(
+                            text = "START ROTATION",
+                            color = EpicSuccess,
+                            modifier = Modifier.weight(1f),
+                            enabled = !requestInProgress
+                        ) {
+                            sendCommand("ROTATE")
+                        }
+
+                        ActionButton(
+                            text = "EMERGENCY STOP",
+                            color = EpicError,
+                            modifier = Modifier.weight(1f),
+                            enabled = !requestInProgress
+                        ) {
+                            sendCommand("STOP")
+                        }
+                    }
+                }
+
+                SectionCard(title = "Quick Presets") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PresetButton("90°", Modifier.weight(1f)) {
+                            degreesText = "90"
+                            hasLocalDegreesDraft = true
+                            sendCommand("SET_DEGREES", "90")
+                        }
+
+                        PresetButton("180°", Modifier.weight(1f)) {
+                            degreesText = "180"
+                            hasLocalDegreesDraft = true
+                            sendCommand("SET_DEGREES", "180")
+                        }
+
+                        PresetButton("360°", Modifier.weight(1f)) {
+                            degreesText = "360"
+                            hasLocalDegreesDraft = true
+                            sendCommand("SET_DEGREES", "360")
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PresetButton("720°", Modifier.weight(1f)) {
+                            degreesText = "720"
+                            hasLocalDegreesDraft = true
+                            sendCommand("SET_DEGREES", "720")
+                        }
+
+                        PresetButton("1800°", Modifier.weight(1f)) {
+                            degreesText = "1800"
+                            hasLocalDegreesDraft = true
+                            sendCommand("SET_DEGREES", "1800")
+                        }
+                    }
+                }
+
+                if (requestInProgress) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = EpicBlue,
+                            modifier = Modifier.width(26.dp)
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Desktop changes synchronize automatically every 2 seconds",
+                    color = EpicDim,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                )
+            }
         }
+
+        AnimatedVisibility(
+            visible = showGistSettings,
+            enter = fadeIn(animationSpec = tween(durationMillis = 180)),
+            exit = fadeOut(animationSpec = tween(durationMillis = 180))
+        ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(EpicDark)
+                ) {
+                    TopAppBar(
+                        title = {
+                            Column {
+                                Text(
+                                    text = "GIST SETTINGS",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 19.sp,
+                                    color = EpicText
+                                )
+                                Text(
+                                    text = "Desktop connection",
+                                    fontSize = 12.sp,
+                                    color = EpicDim
+                                )
+                            }
+                        },
+                        actions = {
+                            TextButton(onClick = { showGistSettings = false }) {
+                                Text(
+                                    text = "CLOSE",
+                                    color = FestoCyan,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = EpicDark
+                        )
+                    )
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        SectionCard(title = "GitHub Gist") {
+                            Text(
+                                text = "Enter the shared Gist credentials used by the desktop app.",
+                                color = EpicDim,
+                                fontSize = 13.sp
+                            )
+
+                            Spacer(Modifier.height(10.dp))
+
+                            OutlinedTextField(
+                                value = gistId,
+                                onValueChange = { gistId = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text("Gist ID") }
+                            )
+
+                            Spacer(Modifier.height(10.dp))
+
+                            OutlinedTextField(
+                                value = githubToken,
+                                onValueChange = { githubToken = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text("GitHub token") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Password
+                                )
+                            )
+
+                            Spacer(Modifier.height(14.dp))
+
+                            ActionButton(
+                                text = "SAVE GIST SETTINGS",
+                                color = EpicBlue,
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !requestInProgress
+                            ) {
+                                saveGistSettings()
+                            }
+                        }
+                    }
+                }
+            }
     }
 }
 
