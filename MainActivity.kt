@@ -14,6 +14,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +38,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -71,15 +73,28 @@ private const val GIST_PREFERENCES = "gist_connection"
 private const val GIST_ID_KEY = "gist_id"
 private const val GITHUB_TOKEN_KEY = "github_token"
 
-private val EpicBlue = Color(0xFF0078F2)
-private val EpicDark = Color(0xFF0E0E11)
-private val EpicCard = Color(0xFF17181C)
-private val EpicBorder = Color(0xFF2A2D33)
-private val EpicText = Color(0xFFFFFFFF)
-private val EpicDim = Color(0xFFA0A0A8)
-private val EpicSuccess = Color(0xFF4FBF67)
-private val EpicWarning = Color(0xFFF8B133)
-private val EpicError = Color(0xFFE63946)
+private val FestoBlue = Color(0xFF008BCB)
+private val FestoCyan = Color(0xFF00B8D9)
+private val FestoNavy = Color(0xFF09141D)
+private val FestoSurface = Color(0xFF122431)
+private val FestoSurfaceRaised = Color(0xFF19313F)
+private val FestoBorder = Color(0xFF2A4656)
+private val FestoText = Color(0xFFF1F7FA)
+private val FestoDim = Color(0xFFA8BDC8)
+private val FestoSuccess = Color(0xFF16B982)
+private val FestoWarning = Color(0xFFFFB547)
+private val FestoError = Color(0xFFFF626D)
+
+// Semantic aliases keep the controls below readable while using the new palette.
+private val EpicBlue = FestoBlue
+private val EpicDark = FestoNavy
+private val EpicCard = FestoSurface
+private val EpicBorder = FestoBorder
+private val EpicText = FestoText
+private val EpicDim = FestoDim
+private val EpicSuccess = FestoSuccess
+private val EpicWarning = FestoWarning
+private val EpicError = FestoError
 
 class MainActivity : ComponentActivity() {
 
@@ -90,11 +105,14 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(
                 colorScheme = MaterialTheme.colorScheme.copy(
-                    primary = EpicBlue,
-                    background = EpicDark,
-                    surface = EpicCard,
-                    onBackground = EpicText,
-                    onSurface = EpicText
+                    primary = FestoBlue,
+                    secondary = FestoCyan,
+                    background = FestoNavy,
+                    surface = FestoSurface,
+                    surfaceVariant = FestoSurfaceRaised,
+                    outline = FestoBorder,
+                    onBackground = FestoText,
+                    onSurface = FestoText
                 )
             ) {
                 FestoRemoteApp()
@@ -132,7 +150,7 @@ fun FestoLoadingScreen() {
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(Color(0xFF111827), EpicDark, Color(0xFF090A0D))
+                    colors = listOf(Color(0xFF0E2531), FestoNavy, Color(0xFF050A0F))
                 )
             ),
         contentAlignment = Alignment.Center
@@ -143,7 +161,7 @@ fun FestoLoadingScreen() {
         ) {
             Text(
                 text = "FESTO",
-                color = EpicText,
+                color = FestoText,
                 fontWeight = FontWeight.Black,
                 fontSize = 32.sp,
                 letterSpacing = 4.sp
@@ -151,21 +169,21 @@ fun FestoLoadingScreen() {
 
             Text(
                 text = "MOTOR CONTROL",
-                color = EpicBlue,
+                color = FestoCyan,
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
                 letterSpacing = 2.sp
             )
 
             CircularProgressIndicator(
-                color = EpicBlue,
+                color = FestoBlue,
                 strokeWidth = 3.dp,
                 modifier = Modifier.width(30.dp)
             )
 
             Text(
                 text = "Preparing remote interface",
-                color = EpicDim,
+                color = FestoDim,
                 fontSize = 13.sp
             )
         }
@@ -382,14 +400,14 @@ fun FestoRemoteScreen() {
             title = {
                 Column {
                     Text(
-                        text = "MOTOR CONTROL",
+                        text = "FESTO DRIVE",
                         fontWeight = FontWeight.Bold,
                         fontSize = 19.sp,
                         color = EpicText
                     )
 
                     Text(
-                        text = "Festo Remote Interface",
+                        text = "Remote motor controller",
                         fontSize = 12.sp,
                         color = EpicDim
                     )
@@ -459,27 +477,27 @@ fun FestoRemoteScreen() {
                 ErrorCard(lastError!!)
             }
 
-            SectionCard(title = "Connection") {
+            SectionCard(title = "System controls") {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     ActionButton(
-                        text = "CONNECT",
-                        color = EpicBlue,
+                        text = "POWER ON",
+                        color = EpicSuccess,
                         modifier = Modifier.weight(1f),
                         enabled = !requestInProgress
                     ) {
-                        sendCommand("CONNECT")
+                        sendCommand("POWER_ON")
                     }
 
                     ActionButton(
-                        text = "DISCONNECT",
+                        text = "POWER OFF",
                         color = EpicError,
                         modifier = Modifier.weight(1f),
                         enabled = !requestInProgress
                     ) {
-                        sendCommand("DISCONNECT")
+                        sendCommand("POWER_OFF")
                     }
                 }
 
@@ -490,7 +508,7 @@ fun FestoRemoteScreen() {
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     ActionButton(
-                        text = "HOME",
+                        text = "HOMING",
                         color = EpicBlue,
                         modifier = Modifier.weight(1f),
                         enabled = !requestInProgress
@@ -507,6 +525,7 @@ fun FestoRemoteScreen() {
                         sendCommand("RESET")
                     }
                 }
+
             }
 
             SectionCard(title = "Rotation Control") {
@@ -646,19 +665,19 @@ fun FestoRemoteScreen() {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    PresetButton("90Â°", Modifier.weight(1f)) {
+                    PresetButton("90°", Modifier.weight(1f)) {
                         degreesText = "90"
                         hasLocalDegreesDraft = true
                         sendCommand("SET_DEGREES", "90")
                     }
 
-                    PresetButton("180Â°", Modifier.weight(1f)) {
+                    PresetButton("180°", Modifier.weight(1f)) {
                         degreesText = "180"
                         hasLocalDegreesDraft = true
                         sendCommand("SET_DEGREES", "180")
                     }
 
-                    PresetButton("360Â°", Modifier.weight(1f)) {
+                    PresetButton("360°", Modifier.weight(1f)) {
                         degreesText = "360"
                         hasLocalDegreesDraft = true
                         sendCommand("SET_DEGREES", "360")
@@ -671,13 +690,13 @@ fun FestoRemoteScreen() {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    PresetButton("720Â°", Modifier.weight(1f)) {
+                    PresetButton("720°", Modifier.weight(1f)) {
                         degreesText = "720"
                         hasLocalDegreesDraft = true
                         sendCommand("SET_DEGREES", "720")
                     }
 
-                    PresetButton("1800Â°", Modifier.weight(1f)) {
+                    PresetButton("1800°", Modifier.weight(1f)) {
                         degreesText = "1800"
                         hasLocalDegreesDraft = true
                         sendCommand("SET_DEGREES", "1800")
@@ -787,19 +806,23 @@ fun SectionCard(
     title: String,
     content: @Composable () -> Unit
 ) {
+    val cardShape = RoundedCornerShape(18.dp)
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, EpicBorder.copy(alpha = 0.7f), cardShape),
         colors = CardDefaults.cardColors(
-            containerColor = EpicCard.copy(alpha = 0.93f)
+            containerColor = EpicCard.copy(alpha = 0.97f)
         ),
-        shape = RoundedCornerShape(6.dp)
+        shape = cardShape
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
         ) {
             Text(
                 text = title.uppercase(),
-                color = EpicText,
+                color = FestoCyan,
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.sp
             )
@@ -820,12 +843,12 @@ fun ActionButton(
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier.height(48.dp),
+        modifier = modifier.height(52.dp),
         enabled = enabled,
-        shape = RoundedCornerShape(4.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = lerp(EpicCard, color, 0.42f),
-            contentColor = Color.White,
+            containerColor = lerp(EpicCard, color, 0.82f),
+            contentColor = FestoText,
             disabledContainerColor = EpicBorder,
             disabledContentColor = EpicDim
         )
@@ -833,7 +856,7 @@ fun ActionButton(
         Text(
             text = text,
             fontWeight = FontWeight.Bold,
-            fontSize = 11.sp
+            fontSize = 12.sp
         )
     }
 }
@@ -850,9 +873,9 @@ fun DirectionButton(
 
     Box(
         modifier = modifier
-            .height(48.dp)
-            .background(background, RoundedCornerShape(4.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(4.dp))
+            .height(52.dp)
+            .background(background, RoundedCornerShape(14.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(14.dp))
             .padding(4.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -881,10 +904,11 @@ fun PresetButton(
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier.height(44.dp),
-        shape = RoundedCornerShape(4.dp),
+        modifier = modifier.height(46.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, EpicBorder),
         colors = ButtonDefaults.buttonColors(
-            containerColor = EpicDark,
+            containerColor = FestoSurfaceRaised,
             contentColor = EpicText
         )
     ) {
