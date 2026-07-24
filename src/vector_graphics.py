@@ -1,11 +1,12 @@
 import os
 import re
-from PyQt5.QtCore import Qt, QByteArray, QSize
+from PyQt5.QtCore import Qt, QByteArray, QSize, QRectF
 from PyQt5.QtGui import QPainter, QPixmap, QIcon
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QLabel, QApplication
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
+
 
 class VectorGraphics:
     """
@@ -13,17 +14,16 @@ class VectorGraphics:
     Supports resolution-independent scaling, High DPI device pixel ratios, dynamic color tinting,
     and automatic Normal/Disabled icon state colors.
     """
-    
+
     @staticmethod
     def get_svg_data(icon_name: str, color_hex: str = "#FFFFFF") -> bytes:
         file_path = os.path.join(ASSETS_DIR, f"{icon_name}.svg")
         if not os.path.exists(file_path):
             file_path = os.path.join(ASSETS_DIR, "rotate.svg")
-        
+
         with open(file_path, "r", encoding="utf-8") as f:
             svg_content = f.read()
 
-        # Inject fill color into SVG path for matching text color
         tinted_svg = re.sub(r'fill="[^"]*"', f'fill="{color_hex}"', svg_content)
         if f'fill="{color_hex}"' not in tinted_svg:
             tinted_svg = re.sub(r'<path ', f'<path fill="{color_hex}" ', tinted_svg)
@@ -35,7 +35,7 @@ class VectorGraphics:
         """Renders a downloaded Fluent SVG icon into a crisp QPixmap matching logical size."""
         app = QApplication.instance()
         dpr = app.devicePixelRatio() if app else 1.0
-        
+
         pixel_size = max(logical_size, int(logical_size * dpr))
 
         svg_bytes = VectorGraphics.get_svg_data(icon_type, color_hex)
@@ -47,7 +47,7 @@ class VectorGraphics:
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
-        renderer.render(painter)
+        renderer.render(painter, QRectF(0.0, 0.0, float(pixel_size), float(pixel_size)))
         painter.end()
 
         pixmap.setDevicePixelRatio(dpr)
@@ -80,7 +80,7 @@ class VectorStatusDot(QWidget):
         self.color_hex = color_hex
         self.text_label = QLabel(text)
         self.icon_label = QLabel()
-        
+
         self.text_label.setStyleSheet(f"""
             color: {color_hex};
             font-size: 14px;
@@ -89,13 +89,13 @@ class VectorStatusDot(QWidget):
             background: transparent;
             text-transform: uppercase;
         """)
-        
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
         self._update_icon(text, color_hex)
-        
+
         layout.addWidget(self.icon_label)
         layout.addWidget(self.text_label)
 
@@ -129,15 +129,15 @@ class VectorDirectionBadge(QWidget):
         self.color_hex = color_hex
         self.icon_label = QLabel()
         self.text_label = QLabel(direction)
-        
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
-        
+
         layout.addStretch()
         layout.addWidget(self.text_label)
         layout.addWidget(self.icon_label)
-        
+
         self.set_direction(direction, color_hex)
 
     def set_direction(self, direction: str, color_hex: str = "#FFFFFF"):
@@ -145,7 +145,7 @@ class VectorDirectionBadge(QWidget):
         self.color_hex = color_hex
         self.text_label.setText(direction)
         self.text_label.setStyleSheet(f"color:{color_hex}; font-size:14px; font-weight:600;")
-        
+
         if direction.upper() in ["CW", "CLOCKWISE"]:
             pix = VectorGraphics.create_pixmap("cw", color_hex, 16)
             self.icon_label.setPixmap(pix)

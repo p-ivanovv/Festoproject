@@ -19,6 +19,7 @@ from src.styles import (
 from src.splash import FestoSplashScreen
 from src.workers import RotateWorker
 from src.vector_graphics import VectorGraphics, VectorStatusDot, VectorDirectionBadge
+from src.settings_window import SettingsDialog
 from gist_remote import GistRemoteListener, push_status
 
 
@@ -28,7 +29,7 @@ class MainWindow(QMainWindow):
 
         self.no_remote = no_remote
         self.setWindowTitle("FESTO MOTOR CONTROL")
-        self.setMinimumSize(850, 700)
+        self.setMinimumSize(850, 650)
 
         self.controller = MotorController()
         self.worker = None
@@ -85,7 +86,6 @@ class MainWindow(QMainWindow):
 
         root.addWidget(self._make_header())
         root.addWidget(h_sep())
-        root.addWidget(self._make_gist_settings_box())
         root.addWidget(self._make_connection_box())
 
         mid = QHBoxLayout()
@@ -102,6 +102,7 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         row = QHBoxLayout(widget)
         row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(12)
 
         left = QVBoxLayout()
         title = QLabel("MOTOR CONTROL SYSTEM")
@@ -118,91 +119,60 @@ class MainWindow(QMainWindow):
         status_color = EPIC_BLUE if controls.is_offline() else EPIC_SUCCESS
         self.status_dot = VectorStatusDot(status_color, status_text)
 
+        self.settings_btn = epic_btn("Settings", EPIC_CARD_BG, icon_type="settings")
+        self.settings_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {EPIC_CARD_BG};
+                color: {EPIC_TEXT};
+                border: 1px solid {EPIC_BORDER};
+                border-radius: 0px;
+                padding: 8px 14px;
+                font-size: 12px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: {EPIC_BORDER};
+                border: 1px solid {EPIC_BLUE};
+            }}
+        """)
+        self.settings_btn.clicked.connect(self._open_settings)
+
         row.addLayout(left)
         row.addStretch()
         row.addWidget(self.status_dot)
+        row.addWidget(self.settings_btn)
 
         return widget
 
-    def _make_gist_settings_box(self):
-        group_box = QGroupBox("GitHub Gist Connection")
-        column = QVBoxLayout(group_box)
-        column.setSpacing(10)
-
-        gist_id_row = QHBoxLayout()
-        gist_id_label = QLabel("Gist ID:")
-        gist_id_label.setFixedWidth(92)
-
-        self.gist_id_input = QLineEdit()
-        self.gist_id_input.setPlaceholderText("Enter Gist ID")
-        self.gist_id_input.setText(self.settings.value("gist_id", "", type=str))
-        gist_id_row.addWidget(gist_id_label)
-        gist_id_row.addWidget(self.gist_id_input)
-        column.addLayout(gist_id_row)
-
-        token_row = QHBoxLayout()
-        token_label = QLabel("Gist token:")
-        token_label.setFixedWidth(92)
-
-        self.gist_token_input = QLineEdit()
-        self.gist_token_input.setPlaceholderText("Enter GitHub token")
-        self.gist_token_input.setEchoMode(QLineEdit.Password)
-        self.gist_token_input.setText(self.settings.value("gist_token", "", type=str))
-        token_row.addWidget(token_label)
-        token_row.addWidget(self.gist_token_input)
-        column.addLayout(token_row)
-
-        action_row = QHBoxLayout()
-        self.apply_gist_btn = epic_btn("Apply Gist Settings", EPIC_BLUE)
-        self.apply_gist_btn.clicked.connect(self._apply_gist_settings)
-
-        self.gist_status_label = QLabel("Gist connection is not configured.")
-        self.gist_status_label.setStyleSheet(f"color:{EPIC_WARNING}; font-size:12px;")
-        action_row.addWidget(self.apply_gist_btn)
-        action_row.addWidget(self.gist_status_label)
-        action_row.addStretch()
-        column.addLayout(action_row)
-
-        return group_box
+    def _open_settings(self):
+        dialog = SettingsDialog(self, no_remote=self.no_remote)
+        dialog.settings_saved.connect(self._apply_gist_settings)
+        dialog.exec_()
 
     def _apply_gist_settings(self, show_log=True):
         if self.no_remote:
-            self.gist_status_label.setText("Remote control is disabled (--no-remote mode).")
-            self.gist_status_label.setStyleSheet(f"color:{EPIC_DIM}; font-size:12px;")
-            self.apply_gist_btn.setEnabled(False)
-            self.gist_id_input.setEnabled(False)
-            self.gist_token_input.setEnabled(False)
+            if show_log:
+                self._log("Remote control disabled (--no-remote mode).", EPIC_WARNING)
             return
 
-        gist_id = self.gist_id_input.text().strip()
-        github_token = self.gist_token_input.text().strip()
+        gist_id = self.settings.value("gist_id", "", type=str).strip()
+        github_token = self.settings.value("gist_token", "", type=str).strip()
 
         if self.remote is not None:
             self.remote.stop()
             self.remote = None
 
         if not gist_id or not github_token:
-            self.settings.remove("gist_id")
-            self.settings.remove("gist_token")
-            self.settings.sync()
-            self.gist_status_label.setText("Enter both Gist ID and token to enable remote control.")
-            self.gist_status_label.setStyleSheet(f"color:{EPIC_WARNING}; font-size:12px;")
             if show_log:
                 self._log("Gist settings incomplete. Remote control disabled.", EPIC_WARNING)
             return
-
-        self.settings.setValue("gist_id", gist_id)
-        self.settings.setValue("gist_token", github_token)
-        self.settings.sync()
 
         self.remote = GistRemoteListener(gist_id, github_token)
         self.remote.command_received.connect(self.on_remote_command)
         self.remote.start()
 
-        self.gist_status_label.setText("Gist remote control is active.")
-        self.gist_status_label.setStyleSheet(f"color:{EPIC_SUCCESS}; font-size:12px;")
         if show_log:
-            self._log("Gist settings applied. Remote listener started.", EPIC_BLUE)
+            self._log("Gist settings applied. Remote listener active.", EPIC_BLUE)
         self._push_status()
 
     def _make_connection_box(self):
@@ -414,6 +384,12 @@ class MainWindow(QMainWindow):
         if self.no_remote:
             return
 
+        gist_id = self.settings.value("gist_id", "", type=str).strip()
+        github_token = self.settings.value("gist_token", "", type=str).strip()
+
+        if not gist_id or not github_token:
+            return
+
         status = {
             "speed": self.speed_slider.value(),
             "degrees": self.degrees_input.text(),
@@ -422,7 +398,7 @@ class MainWindow(QMainWindow):
             "power": self.lbl_power.text(),
         }
         last_cmd_id = self.remote.last_processed_command_id if self.remote is not None else None
-        push_status(status, self.gist_id_input.text(), self.gist_token_input.text(), last_command_id=last_cmd_id)
+        push_status(status, gist_id, github_token, last_command_id=last_cmd_id)
 
     def _on_degrees_change(self, text):
         if text and text.isdigit():
@@ -593,10 +569,8 @@ class MainWindow(QMainWindow):
                 self._on_rotate()
             elif cmd == "STOP":
                 self._on_stop()
-            elif cmd in ("HOME", "HOMING"):
+            elif cmd == "HOME":
                 self._on_homing()
-            elif cmd == "RESET":
-                self._on_reset()
             elif cmd == "POWER_ON":
                 self._on_power_on()
             elif cmd == "POWER_OFF":
